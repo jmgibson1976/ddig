@@ -192,13 +192,14 @@ CZDS_TOKEN=eyJhbGci...    # JWT, ~1193 chars, expires ~1h — auto-refreshed by 
 - ❌ Don't remove diagnostic commands (`doctor`, `ed-debug`, `czds-auth`) — they are needed for maintenance
 - ❌ Don't hardcode CZDS login selectors without checking — the Okta form uses `#emailAddress` for email and `input[type="password"]` for password (auto-generated id)
 - ❌ Don't use `self._session()` in `DomainStore` — the session factory is `self._Session` (capital S)
+- ❌ Don't compare `drop_date` strings without timezone suffix — always use `.isoformat()` which includes `+00:00`
+- ❌ Don't use `strftime("%Y-%m-%d")` for `within_days` comparisons — stored dates include full ISO timestamp with `+00:00`
 
-## Majestic Million Source
+## DropCatch Source
 
-- Zero auth — free public CSV at `https://downloads.majestic.com/majestic_million.csv`
-- ~45 MB download, ~1M rows, regenerated daily
-- Primary use: **backlink enrichment** — upsert fills `backlinks` and `rank` on existing rows
-- `backlinks` field maps to `RefSubNets` (referring subnets — stronger signal than raw count)
-- `rank` field maps to `GlobalRank` (1 = most linked domain on the web)
-- Streaming CSV parse — memory usage stays flat
-- Use `--limit`, `--min-rank`, `--max-rank` to fetch subsets
+- Zero auth — free public CSV delivered as a `.zip` via signed S3 URL
+- API endpoint: `https://client.dropcatch.com/GetFileUrl`
+- CSV columns: `domain`, `tld`, `type`, `drop date`
+- `drop_date` is parsed and stored as UTC midnight ISO timestamp e.g. `2026-04-13T00:00:00+00:00`
+- Use `ddig search --within N --sort drop` to find domains dropping soon
+- 10 feeds available — see `docs/sources/dropcatch.md` for full list

@@ -116,10 +116,14 @@ Options:
   -t, --tld TEXT          Filter by TLD e.g. com, io, app
       --min-score FLOAT   Minimum NLP score (0.0–1.0)
       --max-length INT    Maximum name length (not including TLD)
+      --min-backlinks INT Minimum backlink count (RefSubNets from Majestic)
+      --min-rank INT      Minimum Majestic GlobalRank (lower = more linked)
+      --max-rank INT      Maximum Majestic GlobalRank e.g. 10000 = top 10K only
       --within INT        Dropping within N days
       --real-words        Only return real English dictionary words
       --no-hyphens        Exclude domains containing hyphens
       --no-numbers        Exclude domains containing numbers
+      --sort TEXT         Sort by: score | rank | backlinks | drop  [default: score]
   -l, --limit INT         Max results to return  [default: 50]
       --db PATH           Database path
   -v, --verbose
@@ -134,8 +138,14 @@ ddig search --tld com --max-length 6 --min-score 0.7
 # Real English words only
 ddig search --real-words --min-score 0.8 --limit 20
 
-# Dropping within 3 days
-ddig search --within 3 --real-words --no-hyphens
+# Dropping within 3 days, sorted by drop date
+ddig search --within 3 --real-words --no-hyphens --sort drop
+
+# Top Majestic domains (high authority, short, clean)
+ddig search --max-rank 10000 --max-length 6 --no-hyphens --no-numbers --sort rank
+
+# Most backlinks first
+ddig search --min-backlinks 1000 --no-hyphens --no-numbers --sort backlinks
 
 # Name contains "tech"
 ddig search --name tech --tld io

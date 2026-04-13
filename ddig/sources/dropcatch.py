@@ -30,6 +30,7 @@ log = logging.getLogger(__name__)
 
 DROPCATCH_API_BASE = "https://client.dropcatch.com/GetFileUrl"
 DROPCATCH_REFERER  = "https://www.dropcatch.com/downloads"
+SOURCE             = "dropcatch"
 
 # RequestType values observed in network traffic
 # BackorderDay is only used for Dropping requests
@@ -62,7 +63,8 @@ def _parse_date(value: str | None) -> datetime | None:
         return None
     for fmt in _DATE_FORMATS:
         try:
-            return datetime.strptime(value.strip(), fmt)
+            dt = datetime.strptime(value.strip(), fmt)
+            return dt.replace(tzinfo=timezone.utc)    # always attach UTC
         except ValueError:
             continue
     log.debug("Could not parse date: %r", value)
@@ -214,55 +216,40 @@ class DropCatchSource(DomainSource):
         skipped = 0
 
         for row in reader:
-            norm = {
-                (k.strip().lower() if k else ""): (v.strip() if v else "")
-                for k, v in row.items()
-                if k is not None
-            }
+            try:
+                # Normalize keys — strip whitespace from header names
+                row = {k.strip().lower(): v for k, v in row.items()}
 
-            fqdn = (
-                norm.get("domainname")
-                or norm.get("domain_name")
-                or norm.get("domain")
-                or norm.get("name")
-                or ""
-            ).lower()
+                raw_domain = (row.get("domain") or "").strip().lower()
+                raw_tld    = (row.get("tld")    or "").strip().lower().lstrip(".")
 
-            if not fqdn:
+                if not raw_domain:
+                    skipped += 1
+                    continue
+
+                ext = tldextract.extract(raw_domain)
+
+                domain_name = ext.domain or raw_domain
+                tld_clean   = (ext.suffix or raw_tld).lstrip(".")
+                fqdn        = f"{domain_name}.{tld_clean}" if tld_clean else domain_name
+
+                if not domain_name or not tld_clean:
+                    skipped += 1
+                    continue
+
+                yield Domain(
+                    name       = domain_name,
+                    tld        = tld_clean,
+                    fqdn       = fqdn,
+                    source     = SOURCE,
+                    drop_date  = _parse_date(row.get("drop date")),
+                    fetched_at = datetime.now(timezone.utc),
+                )
+                yielded += 1
+
+            except Exception as exc:
+                log.warning("Error processing row: %s", exc)
                 skipped += 1
-                continue
-
-            ext = tldextract.extract(fqdn)
-            if not ext.domain or not ext.suffix:
-                skipped += 1
-                continue
-
-            expiry_raw = (
-                norm.get("expirydate")
-                or norm.get("expiry_date")
-                or norm.get("expiry")
-                or norm.get("expiration")
-                or norm.get("expiredate")
-            )
-            drop_raw = (
-                norm.get("dropdate")
-                or norm.get("drop_date")
-                or norm.get("drop")
-                or norm.get("deletedate")
-            )
-
-            yield Domain(
-                name        = ext.domain,
-                tld         = ext.suffix,
-                fqdn        = fqdn,
-                expiry_date = _parse_date(expiry_raw),
-                drop_date   = _parse_date(drop_raw),
-                source      = self.name,
-                fetched_at  = datetime.now(timezone.utc),
-                registrar   = norm.get("registrar"),
-                raw         = dict(row),
-            )
-            yielded += 1
 
         log.info(
             "DropCatch '%s': yielded %d domains, skipped %d rows",

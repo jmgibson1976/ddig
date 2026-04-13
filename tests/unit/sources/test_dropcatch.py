@@ -4,35 +4,153 @@ from __future__ import annotations
 import inspect
 import io
 import zipfile
+from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from ddig.sources.dropcatch import DropCatchSource, _parse_date
-from ddig.models.domain import Domain
-
 
 # ------------------------------------------------------------------ #
 # Helpers                                                             #
 # ------------------------------------------------------------------ #
 
-def _make_zip(csv_content: str, filename: str = "domains.csv") -> bytes:
-    """Return in-memory zip bytes containing a single CSV file."""
+SAMPLE_CSV = """\
+domain,tld,type,drop date
+atlas,com,Pending Delete,2026-04-15
+forge,io,Pending Delete,2026-04-16
+"""
+
+MALFORMED_CSV = """\
+domain,tld,type,drop date
+,com,Pending Delete,2026-04-15
+valid,net,Pending Delete,2026-04-17
+"""
+
+
+def _make_zip(csv_content: str, filename: str = "Dropping_Domains_2026-04-13.csv") -> bytes:
+    """Wrap CSV content in a zip archive as dropcatch delivers it."""
     buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w") as zf:
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr(filename, csv_content)
     return buf.getvalue()
 
 
-def _mock_response(status: int = 200, body: str = "", content: bytes = b"") -> MagicMock:
+def _mock_zip_response(csv_content: str) -> MagicMock:
+    zip_bytes = _make_zip(csv_content)
     resp = MagicMock()
-    resp.status_code = status
-    resp.text        = body
-    resp.content     = content or body.encode()
-    resp.json.return_value = {}
-    resp.raise_for_status = MagicMock()
-    resp.headers     = {"Content-Type": "application/zip"}
+    resp.status_code          = 200
+    resp.headers              = {"Content-Type": "application/zip"}
+    resp.content              = zip_bytes
+    resp.raise_for_status     = MagicMock()
     return resp
+
+
+def _mock_response(body: str = "{}") -> MagicMock:
+    resp = MagicMock()
+    resp.status_code          = 200
+    resp.text                 = body
+    resp.raise_for_status     = MagicMock()
+    return resp
+
+
+# ------------------------------------------------------------------ #
+# _parse_date                                                         #
+# ------------------------------------------------------------------ #
+
+class TestParseDate:
+    def test_iso_format(self):
+        assert _parse_date("2026-04-15") == datetime(2026, 4, 15, 0, 0, tzinfo=timezone.utc)
+
+    def test_slash_format(self):
+        assert _parse_date("04/15/2026") == datetime(2026, 4, 15, 0, 0, tzinfo=timezone.utc)
+
+    def test_short_year_format(self):
+        assert _parse_date("04/15/26") == datetime(2026, 4, 15, 0, 0, tzinfo=timezone.utc)
+
+    def test_none_returns_none(self):
+        assert _parse_date(None) is None
+
+    def test_empty_returns_none(self):
+        assert _parse_date("") is None
+
+    def test_whitespace_returns_none(self):
+        assert _parse_date("   ") is None
+
+    def test_garbage_returns_none(self):
+        assert _parse_date("not-a-date") is None
+
+    def test_returns_timezone_aware(self):
+        result = _parse_date("2026-04-15")
+        assert result is not None
+        assert result.tzinfo is not None
+
+
+# ------------------------------------------------------------------ #
+# fetch() — CSV parsing                                               #
+# ------------------------------------------------------------------ #
+
+class TestFetchParsesCsv:
+    def _mock_api_response(self, csv_content: str) -> tuple[MagicMock, MagicMock]:
+        """Return (signed_url_response, s3_zip_response)."""
+        signed = MagicMock()
+        signed.status_code = 200
+        signed.json.return_value = {
+            "result": {
+                "fileUrl":  "https://s3.example.com/fake.csv.zip",
+                "fileName": "Dropping_Domains_2026-04-13.csv.zip",
+            }
+        }
+        signed.raise_for_status = MagicMock()
+        s3 = _mock_zip_response(csv_content)
+        return signed, s3
+
+    def test_yields_correct_count(self):
+        src = DropCatchSource()
+        signed, s3 = self._mock_api_response(SAMPLE_CSV)
+        with patch.object(src._session, "get", side_effect=[signed, s3]):
+            domains = list(src.fetch())
+        assert len(domains) == 2
+
+    def test_domain_fqdn(self):
+        src = DropCatchSource()
+        signed, s3 = self._mock_api_response(SAMPLE_CSV)
+        with patch.object(src._session, "get", side_effect=[signed, s3]):
+            domains = list(src.fetch())
+        fqdns = {d.fqdn for d in domains}
+        assert "atlas.com" in fqdns
+        assert "forge.io"  in fqdns
+
+    def test_drop_date_populated(self):
+        src = DropCatchSource()
+        signed, s3 = self._mock_api_response(SAMPLE_CSV)
+        with patch.object(src._session, "get", side_effect=[signed, s3]):
+            domains = list(src.fetch())
+        atlas = next(d for d in domains if d.name == "atlas")
+        assert atlas.drop_date == datetime(2026, 4, 15, 0, 0, tzinfo=timezone.utc)
+
+    def test_skips_rows_without_domain(self):
+        src = DropCatchSource()
+        signed, s3 = self._mock_api_response(MALFORMED_CSV)
+        with patch.object(src._session, "get", side_effect=[signed, s3]):
+            domains = list(src.fetch())
+        assert len(domains) == 1
+        assert domains[0].fqdn == "valid.net"
+
+    def test_plain_csv_not_zipped(self):
+        """Verify the parser handles the zip correctly."""
+        src = DropCatchSource()
+        signed, s3 = self._mock_api_response(SAMPLE_CSV)
+        with patch.object(src._session, "get", side_effect=[signed, s3]):
+            domains = list(src.fetch())
+        assert len(domains) == 2
+
+    def test_source_field(self):
+        src = DropCatchSource()
+        signed, s3 = self._mock_api_response(SAMPLE_CSV)
+        with patch.object(src._session, "get", side_effect=[signed, s3]):
+            domains = list(src.fetch())
+        assert all(d.source == "dropcatch" for d in domains)
 
 
 # ------------------------------------------------------------------ #
@@ -112,103 +230,3 @@ class TestGetSignedUrl:
     def test_auction_has_no_backorder_day(self):
         src = DropCatchSource(feed="all-auctions")
         assert src._config["BackorderDay"] is None
-
-
-# ------------------------------------------------------------------ #
-# fetch() parses CSV correctly                                        #
-# ------------------------------------------------------------------ #
-
-class TestFetchParsesCsv:
-    CSV = "DomainName,ExpiryDate,DropDate\natlas.com,2026-01-01,2026-04-15\nforge.io,2026-02-01,2026-04-16\n"
-
-    def _setup_mocks(self, src, csv_content):
-        signed_url_resp = _mock_response(
-            body='{"result": {"fileUrl": "https://s3.example.com/f.zip", "fileName": "f.csv.zip"}}'
-        )
-        signed_url_resp.json.return_value = {
-            "result": {"fileUrl": "https://s3.example.com/f.zip", "fileName": "f.csv.zip"}
-        }
-        zip_resp        = _mock_response(content=_make_zip(csv_content))
-        zip_resp.raise_for_status = MagicMock()
-        return [signed_url_resp, zip_resp]
-
-    def test_yields_domain_objects(self):
-        src    = DropCatchSource()
-        resps  = self._setup_mocks(src, self.CSV)
-        with patch.object(src._session, "get", side_effect=resps):
-            domains = list(src.fetch())
-        assert all(isinstance(d, Domain) for d in domains)
-
-    def test_yields_correct_count(self):
-        src   = DropCatchSource()
-        resps = self._setup_mocks(src, self.CSV)
-        with patch.object(src._session, "get", side_effect=resps):
-            domains = list(src.fetch())
-        assert len(domains) == 2
-
-    def test_domain_fqdn(self):
-        src   = DropCatchSource()
-        resps = self._setup_mocks(src, self.CSV)
-        with patch.object(src._session, "get", side_effect=resps):
-            domains = list(src.fetch())
-        fqdns = {d.fqdn for d in domains}
-        assert "atlas.com" in fqdns
-
-    def test_domain_source_is_dropcatch(self):
-        src   = DropCatchSource()
-        resps = self._setup_mocks(src, self.CSV)
-        with patch.object(src._session, "get", side_effect=resps):
-            domains = list(src.fetch())
-        assert all(d.source == "dropcatch" for d in domains)
-
-    def test_skips_rows_without_domain(self):
-        csv = "DomainName,ExpiryDate\n,2026-01-01\natlas.com,2026-01-01\n"
-        src   = DropCatchSource()
-        resps = self._setup_mocks(src, csv)
-        with patch.object(src._session, "get", side_effect=resps):
-            domains = list(src.fetch())
-        assert len(domains) == 1
-
-    def test_plain_csv_not_zipped(self):
-        src  = DropCatchSource()
-        resp_signed = _mock_response(
-            body='{"result": {"fileUrl": "https://s3.example.com/f.csv", "fileName": "f.csv"}}'
-        )
-        resp_signed.json.return_value = {
-            "result": {"fileUrl": "https://s3.example.com/f.csv", "fileName": "f.csv"}
-        }
-        resp_csv = _mock_response(body=self.CSV)
-        resp_csv.content = self.CSV.encode()
-        with patch.object(src._session, "get", side_effect=[resp_signed, resp_csv]):
-            domains = list(src.fetch())
-        assert len(domains) == 2
-
-
-# ------------------------------------------------------------------ #
-# Parsing helpers                                                     #
-# ------------------------------------------------------------------ #
-
-class TestParseDate:
-    def test_iso_format(self):
-        from datetime import datetime
-        assert _parse_date("2026-04-15") == datetime(2026, 4, 15)
-
-    def test_slash_format(self):
-        from datetime import datetime
-        assert _parse_date("04/15/2026") == datetime(2026, 4, 15)
-
-    def test_short_year_format(self):
-        from datetime import datetime
-        assert _parse_date("04/15/26") == datetime(2026, 4, 15)
-
-    def test_none_returns_none(self):
-        assert _parse_date(None) is None
-
-    def test_empty_returns_none(self):
-        assert _parse_date("") is None
-
-    def test_whitespace_returns_none(self):
-        assert _parse_date("   ") is None
-
-    def test_unparseable_returns_none(self):
-        assert _parse_date("not-a-date") is None

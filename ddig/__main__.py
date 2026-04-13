@@ -142,24 +142,32 @@ def fetch(
 
 @app.command()
 def search(
-    name:          Optional[str]   = typer.Option(None,  "--name",          "-n",  help="Partial name match"),
-    tld:           Optional[str]   = typer.Option(None,  "--tld",           "-t",  help="TLD filter e.g. com"),
-    source:        Optional[str]   = typer.Option(None,  "--source",        "-s",  help="Filter by source: dropcatch | expireddomains | czds | majestic"),
-    min_score:     Optional[float] = typer.Option(None,  "--min-score",            help="Min NLP score 0.0–1.0"),
-    max_length:    Optional[int]   = typer.Option(None,  "--max-length",           help="Max name length"),
-    min_backlinks: Optional[int]   = typer.Option(None,  "--min-backlinks",        help="Min backlink count (RefSubNets from Majestic)"),
-    min_rank:      Optional[int]   = typer.Option(None,  "--min-rank",             help="Min Majestic rank (lower = more linked)"),
-    max_rank:      Optional[int]   = typer.Option(None,  "--max-rank",             help="Max Majestic rank e.g. 10000 = top 10K only"),
-    within:        Optional[int]   = typer.Option(None,  "--within",               help="Dropping within N days"),
-    real_words:    bool            = typer.Option(False, "--real-words",           help="Real English words only"),
-    no_hyphens:    bool            = typer.Option(False, "--no-hyphens",           help="Exclude domains with hyphens"),
-    no_numbers:    bool            = typer.Option(False, "--no-numbers",           help="Exclude domains with numbers"),
-    limit:         int             = typer.Option(50,    "--limit",         "-l",  help="Max results to return"),
-    db:            Path            = typer.Option(DEFAULT_DB_PATH,          "--db"),
-    verbose:       bool            = typer.Option(False, "--verbose",       "-v"),
+    name:          Optional[str]   = typer.Option(None,    "--name",          "-n",  help="Partial name match"),
+    tld:           Optional[str]   = typer.Option(None,    "--tld",           "-t",  help="TLD filter e.g. com"),
+    source:        Optional[str]   = typer.Option(None,    "--source",        "-s",  help="Filter by source: dropcatch | expireddomains | czds | majestic"),
+    min_score:     Optional[float] = typer.Option(None,    "--min-score",            help="Min NLP score 0.0–1.0"),
+    max_length:    Optional[int]   = typer.Option(None,    "--max-length",           help="Max name length"),
+    min_backlinks: Optional[int]   = typer.Option(None,    "--min-backlinks",        help="Min backlink count (RefSubNets from Majestic)"),
+    min_rank:      Optional[int]   = typer.Option(None,    "--min-rank",             help="Min Majestic GlobalRank"),
+    max_rank:      Optional[int]   = typer.Option(None,    "--max-rank",             help="Max Majestic GlobalRank e.g. 10000 = top 10K only"),
+    within:        Optional[int]   = typer.Option(None,    "--within",               help="Dropping within N days"),
+    real_words:    bool            = typer.Option(False,   "--real-words",           help="Real English words only"),
+    no_hyphens:    bool            = typer.Option(False,   "--no-hyphens",           help="Exclude domains with hyphens"),
+    no_numbers:    bool            = typer.Option(False,   "--no-numbers",           help="Exclude domains with numbers"),
+    sort:          str             = typer.Option("score", "--sort",                 help="Sort by: score | rank | backlinks | drop"),
+    limit:         int             = typer.Option(50,      "--limit",         "-l",  help="Max results to return"),
+    db:            Path            = typer.Option(DEFAULT_DB_PATH,            "--db"),
+    verbose:       bool            = typer.Option(False,   "--verbose",       "-v"),
 ) -> None:
     """Search the local domain database."""
     _setup_logging(verbose)
+
+    VALID_SORTS = {"score", "rank", "backlinks", "drop"}
+    if sort not in VALID_SORTS:
+        console.print(f"[red]Invalid --sort value: {sort!r}[/red]")
+        console.print(f"Valid options: {', '.join(sorted(VALID_SORTS))}")
+        raise typer.Exit(1)
+
     store   = DomainStore(db_path=db)
     domains = store.search(
         name          = name,
@@ -174,6 +182,7 @@ def search(
         real_words    = real_words,
         no_hyphens    = no_hyphens,
         no_numbers    = no_numbers,
+        sort          = sort,
         limit         = limit,
     )
 

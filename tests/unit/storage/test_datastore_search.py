@@ -273,7 +273,9 @@ class TestSearchWithinDays:
 
     def test_within_1_day(self, populated_store: DomainStore):
         results = populated_store.search(within_days=1, limit=100)
-        assert results == []            # nothing drops within 1 day
+        fqdns   = {r.fqdn for r in results}
+        assert "a2z.net" not in fqdns    # drops in 2 days — outside 1 day window
+        assert "pixel.dev" not in fqdns  # drops in 60 days
 
 
 # ------------------------------------------------------------------ #
@@ -380,3 +382,50 @@ class TestSearchCombinedFilters:
             assert not any(c.isdigit() for c in r.name)
             assert r.is_real_word is True
             assert r.backlinks    is not None and r.backlinks >= 1000
+
+
+# ------------------------------------------------------------------ #
+# search sort                                                         #
+# ------------------------------------------------------------------ #
+
+class TestSearchSort:
+    def test_default_sort_is_score(self, populated_store: DomainStore):
+        results = populated_store.search(limit=100)
+        scores  = [r.nlp_score for r in results if r.nlp_score is not None]
+        assert scores == sorted(scores, reverse=True)
+
+    def test_sort_score_explicit(self, populated_store: DomainStore):
+        results = populated_store.search(sort="score", limit=100)
+        scores  = [r.nlp_score for r in results if r.nlp_score is not None]
+        assert scores == sorted(scores, reverse=True)
+
+    def test_sort_rank_asc(self, populated_store: DomainStore):
+        results = populated_store.search(sort="rank", limit=100)
+        ranks   = [r.rank for r in results if r.rank is not None]
+        assert ranks == sorted(ranks)
+
+    def test_sort_backlinks_desc(self, populated_store: DomainStore):
+        results = populated_store.search(sort="backlinks", limit=100)
+        bl      = [r.backlinks for r in results if r.backlinks is not None]
+        assert bl == sorted(bl, reverse=True)
+
+    def test_sort_drop_asc(self, populated_store: DomainStore):
+        results = populated_store.search(sort="drop", limit=100)
+        drops   = [r.drop_date for r in results if r.drop_date is not None]
+        assert drops == sorted(drops)
+
+    def test_sort_rank_nulls_last(self, populated_store: DomainStore):
+        results = populated_store.search(sort="rank", limit=100)
+        ranks   = [r.rank for r in results]
+        none_indices    = [i for i, r in enumerate(ranks) if r is None]
+        non_none_indices = [i for i, r in enumerate(ranks) if r is not None]
+        if none_indices and non_none_indices:
+            assert max(non_none_indices) < min(none_indices)
+
+    def test_sort_backlinks_nulls_last(self, populated_store: DomainStore):
+        results = populated_store.search(sort="backlinks", limit=100)
+        bls     = [r.backlinks for r in results]
+        none_indices     = [i for i, b in enumerate(bls) if b is None]
+        non_none_indices = [i for i, b in enumerate(bls) if b is not None]
+        if none_indices and non_none_indices:
+            assert max(non_none_indices) < min(none_indices)

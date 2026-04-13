@@ -315,9 +315,10 @@ class DomainStore:
         real_words:    bool            = False,
         no_hyphens:    bool            = False,
         no_numbers:    bool            = False,
+        sort:          str             = "score",   # score | rank | backlinks | drop
         limit:         int             = 50,
     ) -> list[Domain]:
-        with self._Session() as session:                         # capital S — matches __init__
+        with self._Session() as session:
             q = select(DomainRecord)
 
             if name:
@@ -337,19 +338,29 @@ class DomainStore:
             if max_rank is not None:
                 q = q.where(DomainRecord.rank <= max_rank)
             if within_days is not None:
-                cutoff = datetime.now(timezone.utc) + timedelta(days=within_days)
-                q = q.where(DomainRecord.drop_date <= cutoff)
-                q = q.where(DomainRecord.drop_date >= datetime.now(timezone.utc))
+                now        = datetime.now(timezone.utc)
+                today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+                cutoff     = now + timedelta(days=within_days)
+                q = q.where(DomainRecord.drop_date <= cutoff.isoformat())
+                q = q.where(DomainRecord.drop_date >= today_start.isoformat())
+
             if real_words:
                 q = q.where(DomainRecord.is_real_word == True)
             if no_hyphens:
                 q = q.where(DomainRecord.name.notlike("%-%"))
             if no_numbers:
-                q = q.where(~DomainRecord.name.regexp_match(r'[0-9]'))
+                q = q.where(
+                    ~func.lower(DomainRecord.name).op("GLOB")("*[0-9]*")
+                )
 
-            if max_rank is not None or min_rank is not None:
+            # Sort order
+            if sort == "rank":
                 q = q.order_by(DomainRecord.rank.asc().nulls_last())
-            else:
+            elif sort == "backlinks":
+                q = q.order_by(DomainRecord.backlinks.desc().nulls_last())
+            elif sort == "drop":
+                q = q.order_by(DomainRecord.drop_date.asc().nulls_last())
+            else:  # default: score
                 q = q.order_by(DomainRecord.nlp_score.desc().nulls_last())
 
             q = q.limit(limit)
