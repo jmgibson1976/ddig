@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "DDig"
+version = "0.0.1"
+description = "Project DDig: A python package for discovering expired and expiring domains. This package provides tools for finding and analyzing expired domains, which can be valuable for SEO, domain flipping, and other online ventures."
+readme = "README.md"
+requires-python = ">=3.13"
+authors = [{ name = "Jeremy M. Gibson", email = "jeremy@jeremymgibson.com" }]
+keywords = ["domains", "expired domains", "SEO", "domain flipping", "web scraping"]
+dependencies = [
+    "requests",
+    "beautifulsoup4",
+    "python-whois",
+    "dnspython",
+    "tldextract",
+    "pandas",
+    "wordfreq",
+    "nltk",
+    "aiohttp",
+    "aiofiles",
+    "sqlalchemy",
+    "rich",
+    "typer",
+    "tenacity",
+    "playwright",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "black",
+    "pre-commit",
+    "detect-secrets",
+]
+
+[tool.setuptools]
+packages = ["ddig"]
+include-package-data = false
+
+[project.scripts]
+ddig = "ddig.__main__:main"

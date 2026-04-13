@@ -1,0 +1,10 @@
+fqdn,name,tld,length,drop_date,expiry_date,nlp_score,word_frequency,is_real_word,is_pronounceable,tags,registrar,source
+dawtet.com,dawtet,com,6,,,0.81,0.1,True,True,real-word|no-hyphen|no-numbers|short,,dropcatch
+unbarb.com,unbarb,com,6,,,0.81,0.1,True,True,real-word|no-hyphen|no-numbers|short,,dropcatch
+poemlet.com,poemlet,com,7,,,0.7857,0.1,True,True,real-word|no-hyphen|no-numbers,,dropcatch
+gavaskar.com,gavaskar,com,8,,,0.7697,0.017046,True,True,real-word|no-hyphen|no-numbers,,dropcatch
+wupatki.com,wupatki,com,7,,,0.7657,0.0,True,True,real-word|no-hyphen|no-numbers,,dropcatch
+veerappa.com,veerappa,com,8,,,0.755,0.0,True,True,real-word|no-hyphen|no-numbers,,dropcatch
+dozenth.com,dozenth,com,7,,,0.7541,0.1,True,True,real-word|no-hyphen|no-numbers,,dropcatch
+scacchic.com,scacchic,com,8,,,0.7487,0.1,True,True,real-word|no-hyphen|no-numbers,,dropcatch
+yaaaaay.com,yaaaaay,com,7,,,0.7416,0.0,True,True,real-word|no-hyphen|no-numbers,,dropcatch
