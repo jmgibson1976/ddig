@@ -154,7 +154,11 @@ def search(
     real_words:    bool            = typer.Option(False,   "--real-words",           help="Real English words only"),
     no_hyphens:    bool            = typer.Option(False,   "--no-hyphens",           help="Exclude domains with hyphens"),
     no_numbers:    bool            = typer.Option(False,   "--no-numbers",           help="Exclude domains with numbers"),
-    sort:          str             = typer.Option("score", "--sort",                 help="Sort by: score | rank | backlinks | drop"),
+    sort:          str             = typer.Option(
+        "composite",
+        "--sort",
+        help="Sort by: composite | score | rank | backlinks | drop",
+    ),
     limit:         int             = typer.Option(50,      "--limit",         "-l",  help="Max results to return"),
     db:            Path            = typer.Option(DEFAULT_DB_PATH,            "--db"),
     verbose:       bool            = typer.Option(False,   "--verbose",       "-v"),
@@ -162,7 +166,7 @@ def search(
     """Search the local domain database."""
     _setup_logging(verbose)
 
-    VALID_SORTS = {"score", "rank", "backlinks", "drop"}
+    VALID_SORTS = {"composite", "score", "rank", "backlinks", "drop"}
     if sort not in VALID_SORTS:
         console.print(f"[red]Invalid --sort value: {sort!r}[/red]")
         console.print(f"Valid options: {', '.join(sorted(VALID_SORTS))}")

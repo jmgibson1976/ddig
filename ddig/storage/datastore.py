@@ -62,6 +62,7 @@ class DomainRecord(Base):
     backlinks          = Column(Integer,      nullable=True)
     rank               = Column(Integer,      nullable=True)   # GlobalRank from Majestic etc.
     nlp_score          = Column(Float,        nullable=True)
+    composite_score    = Column(Float,        nullable=True)
     is_real_word       = Column(Integer,      nullable=True)   # bool as 0/1
     word_frequency     = Column(Float,        nullable=True)
     is_pronounceable   = Column(Integer,      nullable=True)
@@ -99,6 +100,7 @@ def _domain_to_record(domain: Domain) -> dict:
         registrar         = domain.registrar,
         backlinks         = domain.backlinks,
         nlp_score         = domain.nlp_score,
+        composite_score   = domain.composite_score,
         is_real_word      = int(domain.is_real_word)      if domain.is_real_word      is not None else None,
         word_frequency    = domain.word_frequency,
         is_pronounceable  = int(domain.is_pronounceable)  if domain.is_pronounceable  is not None else None,
@@ -126,6 +128,7 @@ def _record_to_domain(rec: DomainRecord) -> Domain:
     registrar = cast(str | None, rec.registrar)
     backlinks = cast(int | None, rec.backlinks)
     nlp_score = cast(float | None, rec.nlp_score)
+    composite_score = cast(float | None, rec.composite_score)
     is_real_word = cast(int | None, rec.is_real_word)
     word_frequency = cast(float | None, rec.word_frequency)
     is_pronounceable = cast(int | None, rec.is_pronounceable)
@@ -143,6 +146,7 @@ def _record_to_domain(rec: DomainRecord) -> Domain:
         registrar        = registrar,
         backlinks        = backlinks,
         nlp_score        = nlp_score,
+        composite_score  = composite_score,
         is_real_word     = bool(is_real_word)     if is_real_word     is not None else None,
         word_frequency   = word_frequency,
         is_pronounceable = bool(is_pronounceable) if is_pronounceable is not None else None,
@@ -315,7 +319,7 @@ class DomainStore:
         real_words:    bool            = False,
         no_hyphens:    bool            = False,
         no_numbers:    bool            = False,
-        sort:          str             = "score",   # score | rank | backlinks | drop
+        sort:          str             = "composite",   # composite | score | rank | backlinks | drop
         limit:         int             = 50,
     ) -> list[Domain]:
         with self._Session() as session:
@@ -360,8 +364,10 @@ class DomainStore:
                 q = q.order_by(DomainRecord.backlinks.desc().nulls_last())
             elif sort == "drop":
                 q = q.order_by(DomainRecord.drop_date.asc().nulls_last())
-            else:  # default: score
+            elif sort == "score":
                 q = q.order_by(DomainRecord.nlp_score.desc().nulls_last())
+            else:  # default: composite
+                q = q.order_by(DomainRecord.composite_score.desc().nulls_last())
 
             q = q.limit(limit)
 

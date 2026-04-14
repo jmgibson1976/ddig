@@ -123,7 +123,7 @@ Options:
       --real-words        Only return real English dictionary words
       --no-hyphens        Exclude domains containing hyphens
       --no-numbers        Exclude domains containing numbers
-      --sort TEXT         Sort by: score | rank | backlinks | drop  [default: score]
+      --sort TEXT         Sort by: composite | score | rank | backlinks | drop  [default: composite]
   -l, --limit INT         Max results to return  [default: 50]
       --db PATH           Database path
   -v, --verbose

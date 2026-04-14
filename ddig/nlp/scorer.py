@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import time
+import math
 from functools import lru_cache
 from multiprocessing import Pool, cpu_count
 from typing import TYPE_CHECKING
@@ -99,18 +100,24 @@ def _score_pronounceability(name: str) -> float:
     return (ratio_score + consonant_penalty) / 2
 
 
+@lru_cache(maxsize=32_768)
 def _score_length(name: str) -> float:
-    """Short domains score higher. Sweet spot 4–8 chars."""
+    """
+    Score based on domain name length.
+    Sweet spot is 3–6 characters.
+    """
     n = len(name)
-    if n <= 3:
-        return 0.6   # too short, possibly already taken or meaningless
-    if n <= 6:
-        return 1.0
-    if n <= 9:
-        return 0.8
-    if n <= 12:
-        return 0.5
-    return max(0.0, 0.5 - (n - 12) * 0.05)
+    if n <= 3:  return 1.0
+    if n == 4:  return 1.0
+    if n == 5:  return 0.9
+    if n == 6:  return 0.8
+    if n == 7:  return 0.7
+    if n == 8:  return 0.6
+    if n == 9:  return 0.5
+    if n == 10: return 0.4
+    if n <= 12: return 0.3
+    if n <= 15: return 0.2
+    return 0.1
 
 
 # ---------------------------------------------------------------------------
@@ -126,6 +133,53 @@ WEIGHTS = {
     "no_numbers":      0.10,
 }
 
+# Composite score weights
+COMPOSITE_WEIGHTS = {
+    "nlp_score":  0.50,
+    "backlinks":  0.30,
+    "rank":       0.20,
+}
+
+# Normalisation ceilings
+_BACKLINK_CEIL = 1_000_000   # log10 ceiling for backlinks
+_RANK_CEIL     = 1_000_000   # log10 ceiling for rank
+
+
+def _normalise_backlinks(backlinks: int | None) -> float:
+    """Log-normalise backlinks to 0–1. Missing → 0."""
+    if backlinks is None or backlinks <= 0:
+        return 0.0
+    return min(math.log10(backlinks + 1) / math.log10(_BACKLINK_CEIL), 1.0)
+
+
+def _normalise_rank(rank: int | None) -> float:
+    """
+    Inverse log-normalise Majestic rank to 0–1.
+    Rank 1 → 1.0, rank 1_000_000 → 0.0, missing → 0.0.
+    Lower rank number = more linked = higher score.
+    """
+    if rank is None or rank <= 0:
+        return 0.0
+    return max(1.0 - math.log10(rank) / math.log10(_RANK_CEIL), 0.0)
+
+
+def compute_composite(
+    nlp_score: float | None,
+    backlinks: int   | None,
+    rank:      int   | None,
+) -> float:
+    """Compute composite score from NLP score, backlinks, and rank."""
+    nlp  = nlp_score if nlp_score is not None else 0.0
+    bl   = _normalise_backlinks(backlinks)
+    rnk  = _normalise_rank(rank)
+
+    return round(
+        nlp  * COMPOSITE_WEIGHTS["nlp_score"]
+      + bl   * COMPOSITE_WEIGHTS["backlinks"]
+      + rnk  * COMPOSITE_WEIGHTS["rank"],
+        4,
+    )
+
 
 class DomainScorer:
     """
@@ -140,41 +194,41 @@ class DomainScorer:
     def __init__(self, language: str = "en") -> None:
         self.language = language
 
-    def score(self, domain: "Domain") -> "Domain":
+    def score(self, domain: Domain) -> Domain:
         """Score a single domain in-place and return it."""
         name = domain.name.lower()
 
-        # Component scores
-        is_real, freq_score = _score_real_word(name, self.language)
-        length_score        = _score_length(name)
-        pronounce_score     = _score_pronounceability(name)
-        no_hyphen_score     = 0.0 if domain.has_hyphen else 1.0
-        no_numbers_score    = 0.0 if domain.has_numbers else 1.0
+        is_real, freq_score  = _score_real_word(name, self.language)
+        length_score         = _score_length(name)
+        pronounce_score      = _score_pronounceability(name)
+        no_hyphen_score      = 0.0 if domain.has_hyphen  else 1.0
+        no_numbers_score     = 0.0 if domain.has_numbers else 1.0
+        is_pronounceable     = bool(pronounce_score >= 0.5)
 
-        # Weighted sum
         final = (
-            is_real      * WEIGHTS["real_word"]
-            + freq_score * WEIGHTS["word_frequency"]
-            + length_score       * WEIGHTS["length"]
-            + pronounce_score    * WEIGHTS["pronounceable"]
-            + no_hyphen_score    * WEIGHTS["no_hyphen"]
-            + no_numbers_score   * WEIGHTS["no_numbers"]
+              is_real          * WEIGHTS["real_word"]
+            + freq_score       * WEIGHTS["word_frequency"]
+            + length_score     * WEIGHTS["length"]
+            + pronounce_score  * WEIGHTS["pronounceable"]
+            + no_hyphen_score  * WEIGHTS["no_hyphen"]
+            + no_numbers_score * WEIGHTS["no_numbers"]
         )
 
-        domain.nlp_score       = round(final, 4)
-        domain.is_real_word    = is_real
-        domain.word_frequency  = round(freq_score, 6)
-        domain.is_pronounceable = pronounce_score >= 0.5
+        domain.nlp_score        = round(final, 4)
+        domain.is_real_word     = is_real
+        domain.word_frequency   = round(freq_score, 6)
+        domain.is_pronounceable = is_pronounceable
+        domain.composite_score  = compute_composite(
+            domain.nlp_score,
+            domain.backlinks,
+            domain.rank,
+        )
 
-        # Tags
-        if is_real:
-            domain.tags.append("real-word")
-        if not domain.has_hyphen:
-            domain.tags.append("no-hyphen")
-        if not domain.has_numbers:
-            domain.tags.append("no-numbers")
-        if len(name) <= 6:
-            domain.tags.append("short")
+        domain.tags = self._build_tags(
+            domain,
+            is_real_word     = is_real,
+            is_pronounceable = is_pronounceable,
+        )
 
         return domain
 
@@ -183,3 +237,22 @@ class DomainScorer:
         for d in domains:
             self.score(d)
         return sorted(domains, key=lambda d: d.nlp_score or 0.0, reverse=True)
+
+    def _build_tags(self, domain: "Domain", is_real_word: bool, is_pronounceable: bool) -> list[str]:
+        """Build a deduplicated tag list."""
+        tags: set[str] = set(domain.tags)
+
+        if is_real_word:
+            tags.add("english-word")
+        if is_pronounceable:
+            tags.add("pronounceable")
+        if not domain.has_hyphen:
+            tags.add("no-hyphen")
+        if not domain.has_numbers:
+            tags.add("no-numbers")
+        if domain.length <= 4:
+            tags.add("ultra-short")
+        elif domain.length <= 6:
+            tags.add("short")
+
+        return sorted(tags)

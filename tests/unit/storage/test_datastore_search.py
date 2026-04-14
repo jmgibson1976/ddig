@@ -66,9 +66,9 @@ class TestSearchNoFilters:
         results = populated_store.search(limit=3)
         assert len(results) == 3
 
-    def test_default_sort_is_nlp_score_desc(self, populated_store: DomainStore):
-        results = populated_store.search(limit=100)
-        scores  = [r.nlp_score for r in results if r.nlp_score is not None]
+    def test_default_sort_is_composite_desc(self, populated_store: DomainStore):
+        results  = populated_store.search(limit=100)
+        scores   = [r.composite_score for r in results if r.composite_score is not None]
         assert scores == sorted(scores, reverse=True)
 
     def test_none_scores_sorted_last(self, populated_store: DomainStore):
@@ -389,9 +389,9 @@ class TestSearchCombinedFilters:
 # ------------------------------------------------------------------ #
 
 class TestSearchSort:
-    def test_default_sort_is_score(self, populated_store: DomainStore):
+    def test_default_sort_is_composite(self, populated_store: DomainStore):
         results = populated_store.search(limit=100)
-        scores  = [r.nlp_score for r in results if r.nlp_score is not None]
+        scores  = [r.composite_score for r in results if r.composite_score is not None]
         assert scores == sorted(scores, reverse=True)
 
     def test_sort_score_explicit(self, populated_store: DomainStore):

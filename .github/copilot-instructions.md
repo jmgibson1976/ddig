@@ -83,6 +83,8 @@ Source.fetch()
 - `source` accumulates across upserts: `"dropcatch,czds"` if seen in both
 - NLP fields (`nlp_score`, `is_real_word`, etc.) are **never overwritten** on re-fetch
 - `backlinks` keeps the **highest value** seen across sources
+- `composite_score` = 50% `nlp_score` + 30% backlinks (log-normalised) + 20% rank (inverse log-normalised) — computed at score time, stored in DB
+- `composite_score` is the **default sort** for `ddig search` — use `--sort score` for NLP-only sort
 
 ### Sources (`ddig/sources/`)
 - All sources extend `DomainSource` and implement `fetch() -> Iterator[Domain]`
@@ -194,12 +196,13 @@ CZDS_TOKEN=eyJhbGci...    # JWT, ~1193 chars, expires ~1h — auto-refreshed by 
 - ❌ Don't use `self._session()` in `DomainStore` — the session factory is `self._Session` (capital S)
 - ❌ Don't compare `drop_date` strings without timezone suffix — always use `.isoformat()` which includes `+00:00`
 - ❌ Don't use `strftime("%Y-%m-%d")` for `within_days` comparisons — stored dates include full ISO timestamp with `+00:00`
+- ❌ Don't ignore Pylance type errors — always add `None` guards before comparing `Optional` fields
+- ❌ Don't use bare `float` comparisons against `Optional[float]` — Pylance will flag `>=` on `float | None`
+- ❌ Don't pass `float` where `bool` is expected — `is_pronounceable` must be `bool`, not a raw score
 
-## DropCatch Source
+## Type Checking
 
-- Zero auth — free public CSV delivered as a `.zip` via signed S3 URL
-- API endpoint: `https://client.dropcatch.com/GetFileUrl`
-- CSV columns: `domain`, `tld`, `type`, `drop date`
-- `drop_date` is parsed and stored as UTC midnight ISO timestamp e.g. `2026-04-13T00:00:00+00:00`
-- Use `ddig search --within N --sort drop` to find domains dropping soon
-- 10 feeds available — see `docs/sources/dropcatch.md` for full list
+- **Type checker: Pylance** (VS Code, strict mode)
+- Run a quick check before committing: look for red squiggles in VS Code Problems panel (`Cmd+Shift+M`)
+- All `Optional` fields need `is not None` guards before arithmetic comparisons
+- Use `bool(value >= threshold)` to convert float comparisons to bool explicitly

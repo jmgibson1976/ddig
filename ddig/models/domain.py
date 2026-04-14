@@ -32,7 +32,8 @@ class Domain:
     rank:             int | None         = None   # GlobalRank (lower = better, 1 = most linked)
 
     # NLP scoring (populated later)
-    nlp_score:        Optional[float]    = None
+    nlp_score:         float | None = None
+    composite_score:   float | None = None   # 50% nlp + 30% backlinks + 20% rank
     is_real_word:     Optional[bool]     = None
     word_frequency:   Optional[float]    = None
     is_pronounceable: Optional[bool]     = None

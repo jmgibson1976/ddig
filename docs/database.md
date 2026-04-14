@@ -11,25 +11,25 @@ DDig uses a **SQLite** database stored at `~/.ddig/domains.db` by default.
 
 ## Schema
 
-```sql
-CREATE TABLE domains (
-    fqdn             TEXT PRIMARY KEY NOT NULL,  -- e.g. "example.com"
-    name             TEXT NOT NULL,              -- e.g. "example"
-    tld              TEXT NOT NULL,              -- e.g. "com"
-    length           INTEGER,                    -- len("example") = 7
-    drop_date        TEXT,                       -- ISO 8601 "2026-04-15"
-    expiry_date      TEXT,                       -- ISO 8601
-    fetched_at       TEXT,                       -- ISO 8601 timestamp
-    source           TEXT,                       -- "dropcatch", "czds", etc.
-    registrar        TEXT,
-    backlinks        INTEGER,
-    nlp_score        REAL,                       -- 0.0 – 1.0
-    is_real_word     INTEGER,                    -- 0 or 1
-    word_frequency   REAL,                       -- corpus frequency
-    is_pronounceable INTEGER,                    -- 0 or 1
-    tags             TEXT                        -- pipe-separated "short|real_word"
-);
-```
+| Column            | Type    | Description                                          |
+|-------------------|---------|------------------------------------------------------|
+| `id`              | INTEGER | Primary key                                          |
+| `fqdn`            | TEXT    | Unique — `example.com`                               |
+| `name`            | TEXT    | Name without TLD — `example`                         |
+| `tld`             | TEXT    | TLD without dot — `com`                              |
+| `expiry_date`     | TEXT    | ISO 8601 UTC                                         |
+| `drop_date`       | TEXT    | ISO 8601 UTC — when domain drops                     |
+| `source`          | TEXT    | Comma-separated — `dropcatch,czds`                   |
+| `registrar`       | TEXT    | Registrar name                                       |
+| `backlinks`       | INTEGER | RefSubNets from Majestic — highest value kept        |
+| `rank`            | INTEGER | Majestic GlobalRank — lowest (best) value kept       |
+| `nlp_score`       | REAL    | NLP quality score 0.0–1.0 — never overwritten        |
+| `composite_score` | REAL    | 50% nlp + 30% backlinks + 20% rank — 0.0–1.0        |
+| `is_real_word`    | INTEGER | 1 if dictionary word                                 |
+| `word_frequency`  | REAL    | Corpus frequency score                               |
+| `is_pronounceable`| INTEGER | 1 if phonetically pronounceable                      |
+| `tags`            | TEXT    | JSON array — `["english-word", "short"]`             |
+| `fetched_at`      | TEXT    | ISO 8601 UTC — when row was last fetched             |
 
 ## Upsert Behaviour
 
