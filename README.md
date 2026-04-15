@@ -37,6 +37,22 @@ cp .env.example .env
 
 ## Commands
 
+| Command | Description |
+|---------|-------------|
+| `ddig fetch` | Fetch domains from a source and save to DB |
+| `ddig search` | Query the local database |
+| `ddig score` | Run NLP scoring on unscored domains |
+| `ddig stats` | Show database statistics |
+| `ddig export` | Export search results to CSV or JSON — file or stdout |
+| `ddig watch add <fqdn>` | Pin one or more domains to the watchlist |
+| `ddig watch list` | Show watchlist with live scores/backlinks/drop dates |
+| `ddig watch remove <fqdn>` | Unpin one or more domains |
+| `ddig watch clear` | Remove all watched domains |
+| `ddig doctor` | Check env, credentials, dependencies, and DB |
+| `ddig ed-debug` | Inspect ExpiredDomains login form fields |
+| `ddig czds-auth` | Re-authenticate with ICANN CZDS |
+| `ddig czds-tlds` | List all approved CZDS TLDs |
+
 ### `ddig doctor` — Environment Check
 
 Run this first to verify credentials, dependencies, and database health.

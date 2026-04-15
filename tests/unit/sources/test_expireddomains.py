@@ -135,9 +135,10 @@ class TestLogin:
         assert "reme" in names                   # remember_name default is "reme"
 
     def test_missing_credentials_raises(self, monkeypatch):
-        monkeypatch.delenv("EXPIREDDOMAINS_USER",    raising=False)
-        monkeypatch.delenv("EXPIREDDOMAINS_PASS",    raising=False)
-        monkeypatch.delenv("EXPIREDDOMAINS_SESSION", raising=False)
+        monkeypatch.delenv("EXPIREDDOMAINS_USER",             raising=False)
+        monkeypatch.delenv("EXPIREDDOMAINS_PASS",             raising=False)
+        monkeypatch.delenv("EXPIREDDOMAINS_SESSION",          raising=False)
+        monkeypatch.delenv("EXPIREDDOMAINS_REMEMBER_SESSION", raising=False)
         src = ExpiredDomainsSource()
         mock_page = MagicMock()
         with pytest.raises(RuntimeError, match="credentials required"):

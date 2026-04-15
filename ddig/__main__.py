@@ -40,13 +40,110 @@ app = typer.Typer(
 console = Console()
 
 
+# ---------------------------------------------------------------------------
+# helpers  (must be defined before any command functions)
+# ---------------------------------------------------------------------------
+
 def _setup_logging(verbose: bool) -> None:
-    level = logging.DEBUG if verbose else logging.INFO
     logging.basicConfig(
-        level=level,
-        format="%(message)s",
-        handlers=[RichHandler(rich_tracebacks=True, show_path=False)],
+        level    = logging.DEBUG if verbose else logging.INFO,
+        handlers = [RichHandler(rich_tracebacks=True, show_path=False)],
+        format   = "%(message)s",
+        datefmt  = "[%x %X]",
     )
+
+
+# ---------------------------------------------------------------------------
+# watch (sub-app — registered before @app.command decorators)
+# ---------------------------------------------------------------------------
+
+watch_app = typer.Typer(help="Manage the domain watchlist.")
+app.add_typer(watch_app, name="watch")
+
+
+@watch_app.command("add")
+def watch_add(
+    fqdns:   list[str] = typer.Argument(..., help="One or more FQDNs to watch"),
+    db:      Path      = typer.Option(DEFAULT_DB_PATH, "--db"),
+    verbose: bool      = typer.Option(False, "--verbose", "-v"),
+) -> None:
+    """Pin one or more domains to the watchlist."""
+    _setup_logging(verbose)
+    store = DomainStore(db_path=db)
+    added = store.watch_add(fqdns)
+    for fqdn in added:
+        console.print(f"[green]✓[/green] Watching [bold]{fqdn}[/bold]")
+    for fqdn in set(fqdns) - set(added):
+        console.print(f"[dim]Already watching {fqdn}[/dim]")
+
+
+@watch_app.command("remove")
+def watch_remove(
+    fqdns:   list[str] = typer.Argument(..., help="One or more FQDNs to remove"),
+    db:      Path      = typer.Option(DEFAULT_DB_PATH, "--db"),
+    verbose: bool      = typer.Option(False, "--verbose", "-v"),
+) -> None:
+    """Unpin one or more domains from the watchlist."""
+    _setup_logging(verbose)
+    store   = DomainStore(db_path=db)
+    removed = store.watch_remove(fqdns)
+    for fqdn in removed:
+        console.print(f"[green]✓[/green] Removed [bold]{fqdn}[/bold]")
+    for fqdn in set(fqdns) - set(removed):
+        console.print(f"[yellow]Not in watchlist: {fqdn}[/yellow]")
+
+
+@watch_app.command("list")
+def watch_list(
+    db:      Path = typer.Option(DEFAULT_DB_PATH, "--db"),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+) -> None:
+    """Show all watched domains."""
+    _setup_logging(verbose)
+    store   = DomainStore(db_path=db)
+    entries = store.watch_list()
+
+    if not entries:
+        console.print("[yellow]Watchlist is empty.[/yellow]")
+        raise typer.Exit(0)
+
+    table = Table(show_header=True, header_style="bold cyan", box=None)
+    table.add_column("FQDN",      style="bold white", no_wrap=True)
+    table.add_column("Score",     style="green",      justify="right", width=6)
+    table.add_column("Backlinks", style="cyan",       justify="right", width=10)
+    table.add_column("Rank",      style="dim cyan",   justify="right", width=8)
+    table.add_column("Drop",      style="yellow",     width=12)
+    table.add_column("Added",     style="dim",        width=12)
+
+    for entry in entries:
+        d        = entry["domain"]
+        added_at = entry["added_at"][:10]
+        if d:
+            score     = f"{d.nlp_score:.2f}" if d.nlp_score  is not None else "—"
+            backlinks = f"{d.backlinks:,}"   if d.backlinks   is not None else "—"
+            rank      = f"{d.rank:,}"        if d.rank        is not None else "—"
+            drop      = d.drop_date.strftime("%Y-%m-%d") if d.drop_date else "—"
+        else:
+            score = backlinks = rank = drop = "—"
+        table.add_row(entry["fqdn"], score, backlinks, rank, drop, added_at)
+
+    console.print(table)
+    console.print(f"\n[dim]{len(entries)} watched domain(s)[/dim]")
+
+
+@watch_app.command("clear")
+def watch_clear(
+    db:      Path = typer.Option(DEFAULT_DB_PATH, "--db"),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+    confirm: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt"),
+) -> None:
+    """Remove all domains from the watchlist."""
+    _setup_logging(verbose)
+    if not confirm:
+        typer.confirm("Clear entire watchlist?", abort=True)
+    store   = DomainStore(db_path=db)
+    removed = store.watch_clear()
+    console.print(f"[green]✓[/green] Cleared {removed:,} watched domain(s)")
 
 
 # ---------------------------------------------------------------------------
@@ -311,88 +408,93 @@ def stats(
 
 @app.command()
 def export(
-    output:      Path             = typer.Argument(..., help="Output file path"),
-    fmt:         str              = typer.Option("csv",  "--format", "-f", help="csv or json"),
-    tld:         Optional[str]    = typer.Option(None,   "--tld",    "-t"),
-    min_score:   Optional[float]  = typer.Option(None,   "--min-score"),
-    max_length:  Optional[int]    = typer.Option(None,   "--max-length"),
-    real_words:  bool             = typer.Option(False,  "--real-words"),
-    no_hyphens:  bool             = typer.Option(False,  "--no-hyphens"),
-    no_numbers:  bool             = typer.Option(False,  "--no-numbers"),
-    limit:       int              = typer.Option(10_000, "--limit", "-l"),
-    db:          Path             = typer.Option(DEFAULT_DB_PATH, "--db"),
-    verbose:     bool             = typer.Option(False,  "--verbose", "-v"),
+    output:        Optional[Path]  = typer.Argument(None,   help="Output file — omit to print to stdout"),
+    fmt:           str             = typer.Option("csv",    "--format", "-f",  help="csv or json"),
+    tld:           Optional[str]   = typer.Option(None,     "--tld",    "-t"),
+    source:        Optional[str]   = typer.Option(None,     "--source", "-s"),
+    min_score:     Optional[float] = typer.Option(None,     "--min-score"),
+    max_length:    Optional[int]   = typer.Option(None,     "--max-length"),
+    min_backlinks: Optional[int]   = typer.Option(None,     "--min-backlinks"),
+    max_rank:      Optional[int]   = typer.Option(None,     "--max-rank"),
+    within:        Optional[int]   = typer.Option(None,     "--within",        help="Dropping within N days"),
+    real_words:    bool            = typer.Option(False,    "--real-words"),
+    no_hyphens:    bool            = typer.Option(False,    "--no-hyphens"),
+    no_numbers:    bool            = typer.Option(False,    "--no-numbers"),
+    sort:          str             = typer.Option("composite", "--sort",        help="composite | score | rank | backlinks | drop"),
+    limit:         int             = typer.Option(10_000,   "--limit", "-l"),
+    db:            Path            = typer.Option(DEFAULT_DB_PATH, "--db"),
+    verbose:       bool            = typer.Option(False,    "--verbose", "-v"),
 ) -> None:
-    """Export search results to a CSV or JSON file."""
+    """Export search results to CSV or JSON (file or stdout)."""
     _setup_logging(verbose)
 
     store   = DomainStore(db_path=db)
     results = store.search(
-        tld        = tld,
-        min_score  = min_score,
-        max_length = max_length,
-        real_words = real_words,       # was real_words_only — wrong kwarg name
-        no_hyphens = no_hyphens,
-        no_numbers = no_numbers,
-        limit      = limit,
+        tld           = tld,
+        source        = source,
+        min_score     = min_score,
+        max_length    = max_length,
+        min_backlinks = min_backlinks,
+        max_rank      = max_rank,
+        within_days   = within,
+        real_words    = real_words,
+        no_hyphens    = no_hyphens,
+        no_numbers    = no_numbers,
+        sort          = sort,
+        limit         = limit,
     )
 
     if not results:
         console.print("[yellow]No results to export.[/yellow]")
         raise typer.Exit(0)
 
-    output = Path(output)
-
-    if fmt == "csv":
-        with output.open("w", newline="", encoding="utf-8") as fh:
-            writer = csv.writer(fh)
-            writer.writerow([
-                "fqdn", "name", "tld", "length",
-                "drop_date", "expiry_date",
-                "nlp_score", "word_frequency",
-                "is_real_word", "is_pronounceable",
-                "backlinks", "rank",
-                "tags", "registrar", "source",
-            ])
-            for d in results:
-                writer.writerow([
-                    d.fqdn, d.name, d.tld, d.length,
-                    d.drop_date.isoformat()   if d.drop_date   else "",
-                    d.expiry_date.isoformat() if d.expiry_date else "",
-                    d.nlp_score, d.word_frequency,
-                    d.is_real_word, d.is_pronounceable,
-                    d.backlinks, d.rank,
-                    "|".join(d.tags), d.registrar, d.source,
-                ])
-
-    elif fmt == "json":
-        data = []
+    def _rows():
         for d in results:
-            data.append({
+            yield {
                 "fqdn":             d.fqdn,
                 "name":             d.name,
                 "tld":              d.tld,
                 "length":           d.length,
-                "drop_date":        d.drop_date.isoformat()   if d.drop_date   else None,
-                "expiry_date":      d.expiry_date.isoformat() if d.expiry_date else None,
+                "drop_date":        d.drop_date.isoformat()   if d.drop_date   else "",
+                "expiry_date":      d.expiry_date.isoformat() if d.expiry_date else "",
                 "nlp_score":        d.nlp_score,
+                "composite_score":  d.composite_score,
                 "word_frequency":   d.word_frequency,
                 "is_real_word":     d.is_real_word,
                 "is_pronounceable": d.is_pronounceable,
                 "backlinks":        d.backlinks,
                 "rank":             d.rank,
-                "tags":             d.tags,
+                "tags":             "|".join(d.tags),
                 "registrar":        d.registrar,
                 "source":           d.source,
-            })
-        output.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            }
+
+    import sys
+
+    if fmt == "csv":
+        fh       = open(output, "w", newline="", encoding="utf-8") if output else sys.stdout  # type: ignore[assignment]
+        rows     = list(_rows())
+        writer   = csv.DictWriter(fh, fieldnames=list(rows[0].keys()))
+        writer.writeheader()
+        writer.writerows(rows)
+        if output:
+            fh.close()
+
+    elif fmt == "json":
+        data = list(_rows())
+        if output:
+            Path(output).write_text(json.dumps(data, indent=2), encoding="utf-8")
+        else:
+            print(json.dumps(data, indent=2))
+
     else:
-        typer.echo(f"Unknown format: {fmt!r}. Use csv or json.")
+        console.print(f"[red]Unknown format: {fmt!r}. Use csv or json.[/red]")
         raise typer.Exit(1)
 
-    console.print(
-        f"[green]✓[/green] Exported {len(results):,} domains to [bold]{output}[/bold]"
-    )
+    if output:
+        console.print(
+            f"[green]✓[/green] Exported {len(results):,} domains to [bold]{output}[/bold]"
+        )
 
 
 # ---------------------------------------------------------------------------

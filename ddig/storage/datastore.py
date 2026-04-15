@@ -82,6 +82,15 @@ class DomainRecord(Base):
     )
 
 
+class WatchlistRecord(Base):
+    """Watched domains — pinned for monitoring regardless of drop date."""
+
+    __tablename__ = "watchlist"
+
+    fqdn     = Column(String(253), primary_key=True, nullable=False)
+    added_at = Column(String(32),  nullable=False)
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -481,3 +490,62 @@ class DomainStore:
             from sqlalchemy import text
             rows = conn.execute(text("SELECT fqdn FROM domains")).fetchall()
         return frozenset(row[0] for row in rows)
+
+    # ------------------------------------------------------------------ #
+    # Watchlist                                                            #
+    # ------------------------------------------------------------------ #
+
+    def watch_add(self, fqdns: list[str]) -> list[str]:
+        """Pin domains to the watchlist. Returns list of newly added FQDNs."""
+        added = []
+        now   = datetime.now(timezone.utc).isoformat()
+        with self.engine.begin() as conn:
+            for fqdn in fqdns:
+                normalised = fqdn.lower().strip()
+                stmt       = sqlite_insert(WatchlistRecord).values(
+                    fqdn=normalised, added_at=now
+                ).on_conflict_do_nothing(index_elements=["fqdn"])
+                result = conn.execute(stmt)
+                if result.rowcount:
+                    added.append(normalised)
+        return added
+
+    def watch_remove(self, fqdns: list[str]) -> list[str]:
+        """Unpin domains from the watchlist. Returns list of removed FQDNs."""
+        from sqlalchemy import delete as sa_delete
+        removed = []
+        with self.engine.begin() as conn:
+            for fqdn in fqdns:
+                stmt   = sa_delete(WatchlistRecord).where(
+                    WatchlistRecord.fqdn == fqdn.lower().strip()
+                )
+                result = conn.execute(stmt)
+                if result.rowcount:
+                    removed.append(fqdn)
+        return removed
+
+    def watch_list(self) -> list[dict]:
+        """Return all watched domains with their domain record if available."""
+        with self._Session() as session:
+            rows = session.execute(
+                select(WatchlistRecord).order_by(WatchlistRecord.added_at.desc())
+            ).scalars().all()
+
+            results = []
+            for w in rows:
+                domain_row = session.execute(
+                    select(DomainRecord).where(DomainRecord.fqdn == w.fqdn)
+                ).scalar_one_or_none()
+                results.append({
+                    "fqdn":     w.fqdn,
+                    "added_at": w.added_at,
+                    "domain":   _record_to_domain(domain_row) if domain_row else None,
+                })
+            return results
+
+    def watch_clear(self) -> int:
+        """Remove all entries from the watchlist. Returns count removed."""
+        from sqlalchemy import delete as sa_delete
+        with self.engine.begin() as conn:
+            result = conn.execute(sa_delete(WatchlistRecord))
+        return result.rowcount

@@ -39,9 +39,13 @@ ruff format ddig/
 | `ddig score` | Run NLP scoring on unscored domains |
 | `ddig stats` | Show database statistics |
 | `ddig export` | Export search results to CSV or JSON |
+| `ddig watch add <fqdn>` | Pin domains to the watchlist |
+| `ddig watch list` | Show watchlist with live scores from DB |
+| `ddig watch remove <fqdn>` | Unpin domains |
+| `ddig watch clear` | Clear the entire watchlist |
 | `ddig doctor` | Check env, credentials, dependencies, and DB in one shot |
-| `ddig ed-debug` | Open Playwright browser to inspect ExpiredDomains login form fields — use when login breaks |
-| `ddig czds-auth` | Re-authenticate with ICANN CZDS via Playwright, capture JWT, save to .env automatically |
+| `ddig ed-debug` | Open Playwright browser to inspect ExpiredDomains login form fields |
+| `ddig czds-auth` | Re-authenticate with ICANN CZDS via Playwright, capture JWT, save to .env |
 | `ddig czds-tlds` | List all CZDS TLDs you are approved to download |
 
 ## Architecture
@@ -175,6 +179,8 @@ CZDS_TOKEN=eyJhbGci...    # JWT, ~1193 chars, expires ~1h — auto-refreshed by 
 |-------|------|
 | CLI reference + quickstart | `README.md` |
 | Database schema + SQL queries | `docs/database.md` |
+| Export command | `docs/export.md` |
+| Watchlist | `docs/watchlist.md` |
 | DropCatch source | `docs/sources/dropcatch.md` |
 | ExpiredDomains source | `docs/sources/expireddomains.md` |
 | ICANN CZDS source | `docs/sources/czds.md` |
@@ -215,4 +221,3 @@ CZDS_TOKEN=eyJhbGci...    # JWT, ~1193 chars, expires ~1h — auto-refreshed by 
 - **Primary sources:** `dropcatch`, `expireddomains` — always have drop dates, run daily
 - **Enrichment:** `majestic` — run after dropcatch fetch, never creates new records
 - **Pre-scoring only:** `czds` — intentional use only, do not recommend in daily workflows
-- ❌ Don't suggest `ddig fetch --source czds` as a routine command — it creates millions of registered domain records with no drop signal
