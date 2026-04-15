@@ -64,6 +64,18 @@ ddig doctor
 ddig doctor --verbose
 ```
 
+Checks the following sections:
+
+| Section | What it checks |
+|---------|---------------|
+| Python | Executable path and version |
+| dotenv | `.env` file found and loaded |
+| Credentials | All required env vars set |
+| Dependencies | Python packages installed |
+| CLI Tools | `git`, `gh` installed and `gh` authenticated |
+| Git Hooks | `pre-push`, `prepare-commit-msg`, `post-commit` installed and executable |
+| Database | DB path, total domains, scored count |
+
 ---
 
 ### `ddig ed-debug` — ExpiredDomains Form Inspector

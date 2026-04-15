@@ -137,7 +137,8 @@ Source.fetch()
 - All commands accept `--db PATH` to override the database location
 - All commands accept `--verbose / -v` for debug logging
 - Logging is set up via `_setup_logging(verbose)` — call it first in every command
-- `ddig doctor` checks env, credentials, dependencies, and database in one shot
+- `ddig doctor` checks env, credentials, dependencies, CLI tools (`git`, `gh`, `gh auth`), git hooks, and database in one shot
+- `ddig doctor` will warn if `pre-push`, `prepare-commit-msg`, or `post-commit` hooks are not installed or not executable
 - `ddig ed-debug` is a diagnostic command — keep it, needed when ExpiredDomains cookies expire
 - `ddig czds-auth` is a diagnostic command — keep it, needed when CZDS JWT expires (~1h)
 

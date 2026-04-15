@@ -656,18 +656,68 @@ def doctor(
     console.print(table)
     console.print()
 
-    # ── Database ───────────────────────────────────────────────────
-    console.print("[bold]Database[/bold]")
+    # ── CLI Tools ──────────────────────────────────────────────────
+    import shutil
+    import subprocess
+    console.print("[bold]CLI Tools[/bold]")
     table = Table(show_header=False, box=None, padding=(0, 2))
     table.add_column(style="dim",  min_width=24)
     table.add_column(min_width=50)
 
-    db_path = Path.home() / ".ddig" / "domains.db"
-    table.add_row("Path",   str(db_path))
-    table.add_row("Exists", "[green]✓ yes[/green]" if db_path.exists() else "[yellow]⚠ not yet created[/yellow]")
-    if db_path.exists():
-        size_mb = db_path.stat().st_size / 1_048_576
-        table.add_row("Size", f"{size_mb:.2f} MB")
+    # git
+    git_path = shutil.which("git")
+    if git_path:
+        try:
+            git_ver = subprocess.check_output(["git", "--version"], text=True).strip()
+            table.add_row("git", f"[green]✓[/green] {git_ver}  [dim]{git_path}[/dim]")
+        except Exception:
+            table.add_row("git", f"[green]✓ found[/green]  [dim]{git_path}[/dim]")
+    else:
+        table.add_row("git", "[red]✗ not found[/red]  →  brew install git")
+
+    # gh CLI
+    gh_path = shutil.which("gh")
+    if gh_path:
+        try:
+            gh_ver = subprocess.check_output(["gh", "--version"], text=True).splitlines()[0].strip()
+            table.add_row("gh", f"[green]✓[/green] {gh_ver}  [dim]{gh_path}[/dim]")
+        except Exception:
+            table.add_row("gh", f"[green]✓ found[/green]  [dim]{gh_path}[/dim]")
+    else:
+        table.add_row("gh", "[red]✗ not found[/red]  →  brew install gh")
+
+    # gh auth status
+    if gh_path:
+        try:
+            result = subprocess.run(
+                ["gh", "auth", "status"],
+                capture_output=True, text=True
+            )
+            if result.returncode == 0:
+                # extract the "Logged in to..." line
+                auth_line = next(
+                    (l.strip() for l in result.stderr.splitlines() if "Logged in" in l),
+                    "authenticated"
+                )
+                table.add_row("gh auth", f"[green]✓[/green] {auth_line}")
+            else:
+                table.add_row("gh auth", "[red]✗ not authenticated[/red]  →  gh auth login")
+        except Exception:
+            table.add_row("gh auth", "[yellow]⚠ could not determine auth status[/yellow]")
+
+    # git hooks installed
+    hooks_dir  = Path(__file__).parent.parent / ".git" / "hooks"
+    for hook in ["pre-push", "prepare-commit-msg", "post-commit"]:
+        hook_path = hooks_dir / hook
+        if hook_path.exists() and hook_path.stat().st_mode & 0o111:
+            table.add_row(f"hook: {hook}", "[green]✓ installed[/green]")
+        else:
+            table.add_row(
+                f"hook: {hook}",
+                f"[yellow]⚠ not installed[/yellow]  →  "
+                f"cp .github/hooks/{hook} .git/hooks/{hook} && chmod +x .git/hooks/{hook}"
+            )
+
     console.print(table)
     console.print()
 
