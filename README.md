@@ -298,7 +298,7 @@ ddig czds-auth --verbose
 | `dropcatch`      | None                       | ~500–2K/day        | [docs/sources/dropcatch.md]           |
 | `expireddomains` | Free account + two cookies | ~25/page (free)    | [docs/sources/expireddomains.md]      |
 | `czds`           | ICANN account + approval   | Millions/TLD       | [docs/sources/czds.md]                |
-| `majestic`       | None                       | 1M domains/day     | [docs/sources/majestic.md]            |
+| `majestic`       | None                       | Enrichment only — updates backlinks/rank on existing records | [docs/sources/majestic.md] |
 
 ## Environment Variables
 

@@ -39,6 +39,8 @@ DDig uses a **SQLite** database stored at `~/.ddig/domains.db` by default.
 - `nlp_score` and other NLP fields are **preserved** if already scored
   (a re-fetch won't overwrite existing scores)
 - `backlinks` keeps the **highest value** seen across all sources
+- `composite_score` is **automatically recomputed** when `backlinks` or `rank` improve — no need to re-run `ddig score`
+- **Majestic never creates new records** — it only updates `backlinks` and `rank` on existing dropping/expiring domains
 
 ## Direct SQLite Queries
 
@@ -106,4 +108,11 @@ sqlite3 ~/.ddig/domains.db "DELETE FROM domains WHERE source = 'czds';"
 # Reset entirely
 rm ~/.ddig/domains.db
 ddig fetch --source dropcatch   # recreates the schema automatically
-```
+
+# Remove majestic-only records (registered domains that snuck in before enrichment-only fix)
+sqlite3 ~/.ddig/domains.db "
+DELETE FROM domains
+WHERE source = 'majestic'
+  AND drop_date IS NULL
+  AND expiry_date IS NULL;
+"

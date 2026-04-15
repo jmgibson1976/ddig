@@ -429,3 +429,76 @@ class TestSearchSort:
         non_none_indices = [i for i, b in enumerate(bls) if b is not None]
         if none_indices and non_none_indices:
             assert max(non_none_indices) < min(none_indices)
+
+
+# ------------------------------------------------------------------ #
+# composite_score auto-recompute                                    #
+# ------------------------------------------------------------------ #
+
+class TestCompositeScoreAutoRecompute:
+    """composite_score must update when backlinks/rank arrive after initial upsert."""
+
+    def test_composite_updates_when_backlinks_arrive(self, tmp_path):
+        store  = DomainStore(db_path=tmp_path / "test.db")
+        domain = Domain(
+            name="forge", tld="io", fqdn="forge.io",
+            source="dropcatch", nlp_score=0.8,
+        )
+        store.upsert_many([domain])
+        before = store.search(limit=1)[0].composite_score
+
+        # Majestic enrichment arrives
+        enriched = Domain(
+            name="forge", tld="io", fqdn="forge.io",
+            source="majestic", backlinks=50_000, rank=5_000,
+        )
+        store.upsert_many([enriched])
+        after = store.search(limit=1)[0].composite_score
+
+        assert after is not None
+        assert before is not None
+        assert after > before   # composite improved with backlinks + rank
+
+    def test_composite_not_overwritten_when_no_nlp(self, tmp_path):
+        store  = DomainStore(db_path=tmp_path / "test.db")
+        domain = Domain(
+            name="forge", tld="io", fqdn="forge.io",
+            source="dropcatch",   # no nlp_score yet
+        )
+        store.upsert_many([domain])
+        result = store.search(limit=1)[0]
+        assert result.composite_score is None   # nothing to compute from
+
+    def test_composite_set_on_first_scored_upsert(self, tmp_path):
+        store  = DomainStore(db_path=tmp_path / "test.db")
+        domain = Domain(
+            name="forge", tld="io", fqdn="forge.io",
+            source="dropcatch", nlp_score=0.75,
+            composite_score=0.375,   # 0.75 * 0.5, no backlinks/rank
+        )
+        store.upsert_many([domain])
+        result = store.search(limit=1)[0]
+        assert result.composite_score is not None
+        assert result.composite_score > 0.0
+
+    def test_backlinks_keeps_highest_on_conflict(self, tmp_path):
+        store = DomainStore(db_path=tmp_path / "test.db")
+        d1 = Domain(name="forge", tld="io", fqdn="forge.io",
+                    source="majestic", backlinks=1_000, rank=10_000, nlp_score=0.8)
+        d2 = Domain(name="forge", tld="io", fqdn="forge.io",
+                    source="majestic", backlinks=50_000, rank=10_000)
+        store.upsert_many([d1])
+        store.upsert_many([d2])
+        result = store.search(limit=1)[0]
+        assert result.backlinks == 50_000
+
+    def test_rank_keeps_lowest_on_conflict(self, tmp_path):
+        store = DomainStore(db_path=tmp_path / "test.db")
+        d1 = Domain(name="forge", tld="io", fqdn="forge.io",
+                    source="majestic", backlinks=1_000, rank=50_000, nlp_score=0.8)
+        d2 = Domain(name="forge", tld="io", fqdn="forge.io",
+                    source="majestic", rank=500)
+        store.upsert_many([d1])
+        store.upsert_many([d2])
+        result = store.search(limit=1)[0]
+        assert result.rank == 500

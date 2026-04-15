@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional, cast, Iterable
@@ -90,24 +91,35 @@ def _dt_str(dt: Optional[datetime]) -> Optional[str]:
 
 
 def _domain_to_record(domain: Domain) -> dict:
-    return dict(
-        fqdn              = domain.fqdn,
-        name              = domain.name,
-        tld               = domain.tld,
-        expiry_date       = _dt_str(domain.expiry_date),
-        drop_date         = _dt_str(domain.drop_date),
-        source            = domain.source,
-        registrar         = domain.registrar,
-        backlinks         = domain.backlinks,
-        nlp_score         = domain.nlp_score,
-        composite_score   = domain.composite_score,
-        is_real_word      = int(domain.is_real_word)      if domain.is_real_word      is not None else None,
-        word_frequency    = domain.word_frequency,
-        is_pronounceable  = int(domain.is_pronounceable)  if domain.is_pronounceable  is not None else None,
-        tags              = json.dumps(domain.tags),
-        fetched_at        = _dt_str(domain.fetched_at),
-        rank              = domain.rank,
-    )
+    """Convert a Domain dataclass to a dict for SQLite insert."""
+    # Compute composite_score if nlp_score is available and composite not already set
+    composite = domain.composite_score
+    if composite is None and domain.nlp_score is not None:
+        from ddig.nlp.scorer import compute_composite
+        composite = compute_composite(
+            domain.nlp_score,
+            domain.backlinks,
+            domain.rank,
+        )
+
+    return {
+        "fqdn":             domain.fqdn,
+        "name":             domain.name,
+        "tld":              domain.tld,
+        "source":           domain.source or "",
+        "registrar":        domain.registrar,
+        "expiry_date":      domain.expiry_date.isoformat() if domain.expiry_date else None,
+        "drop_date":        domain.drop_date.isoformat()   if domain.drop_date   else None,
+        "backlinks":        domain.backlinks,
+        "rank":             domain.rank,
+        "nlp_score":        domain.nlp_score,
+        "composite_score":  composite,
+        "is_real_word":     domain.is_real_word,
+        "word_frequency":   domain.word_frequency,
+        "is_pronounceable": domain.is_pronounceable,
+        "tags":             json.dumps(domain.tags) if domain.tags else None,
+        "fetched_at":       datetime.now(timezone.utc).isoformat(),
+    }
 
 
 def _record_to_domain(rec: DomainRecord) -> Domain:
@@ -206,21 +218,13 @@ class DomainStore:
         Bulk upsert using SQLite INSERT OR REPLACE.
         On conflict (same fqdn):
           - Always update: source, drop_date, expiry_date, fetched_at
-          - Only update if NULL: nlp_score, backlinks, registrar
-            (preserve existing scored/enriched data)
+          - backlinks: keep highest value seen
+          - rank:      keep lowest (best) value seen
+          - nlp_score + NLP fields: never overwrite once scored
+          - composite_score: recomputed whenever nlp_score, backlinks, or rank change
         """
         if not domains:
             return 0
-
-        # NLP columns — only fields that actually exist on DomainRecord
-        # and should be preserved once scored
-        NLP_COLS = [
-            "nlp_score",
-            "is_real_word",
-            "word_frequency",
-            "is_pronounceable",
-            "tags",
-        ]
 
         records = [_domain_to_record(d) for d in domains]
         total   = len(records)
@@ -230,6 +234,83 @@ class DomainStore:
                 batch = records[i : i + BATCH_SIZE]
                 stmt  = sqlite_insert(DomainRecord).values(batch)
 
+                # Resolved backlinks — highest value wins
+                resolved_backlinks = case(
+                    (
+                        and_(
+                            stmt.excluded.backlinks.isnot(None),
+                            or_(
+                                DomainRecord.backlinks.is_(None),
+                                stmt.excluded.backlinks > DomainRecord.backlinks,
+                            ),
+                        ),
+                        stmt.excluded.backlinks,
+                    ),
+                    else_=DomainRecord.backlinks,
+                )
+
+                # Resolved rank — lowest (best) value wins
+                resolved_rank = case(
+                    (
+                        and_(
+                            stmt.excluded.rank.isnot(None),
+                            or_(
+                                DomainRecord.rank.is_(None),
+                                stmt.excluded.rank < DomainRecord.rank,
+                            ),
+                        ),
+                        stmt.excluded.rank,
+                    ),
+                    else_=DomainRecord.rank,
+                )
+
+                # Resolved nlp_score — never overwrite once set
+                resolved_nlp = case(
+                    (DomainRecord.nlp_score.is_(None), stmt.excluded.nlp_score),
+                    else_=DomainRecord.nlp_score,
+                )
+
+                # composite_score — recompute whenever we have an nlp_score
+                # Formula mirrors compute_composite():
+                #   50% nlp + 30% log-normalised backlinks + 20% inverse log-normalised rank
+                # SQLite has no log() — use pre-computed Python constants as scale factors:
+                #   log10(1_000_000) = 6.0
+                _LOG_CEIL = 6.0   # log10(1_000_000)
+
+                resolved_composite = case(
+                    # Only compute if nlp_score is available
+                    (
+                        resolved_nlp.isnot(None),
+                        (
+                            resolved_nlp * 0.50
+                            + case(
+                                (
+                                    and_(resolved_backlinks.isnot(None), resolved_backlinks > 0),
+                                    # log10 not available in SQLite — approximate with
+                                    # Python-side value stored in composite on next ddig score
+                                    # For upsert we use a simplified linear proxy capped at 1.0
+                                    func.min(
+                                        func.log(resolved_backlinks + 1) / _LOG_CEIL,
+                                        1.0,
+                                    ) * 0.30,
+                                ),
+                                else_=0.0,
+                            )
+                            + case(
+                                (
+                                    and_(resolved_rank.isnot(None), resolved_rank > 0),
+                                    func.max(
+                                        1.0 - func.log(resolved_rank) / _LOG_CEIL,
+                                        0.0,
+                                    ) * 0.20,
+                                ),
+                                else_=0.0,
+                            )
+                        ),
+                    ),
+                    else_=DomainRecord.composite_score,
+                )
+
                 on_conflict_dict = {
                     "source": case(
                         (
@@ -238,41 +319,16 @@ class DomainStore:
                         ),
                         else_=DomainRecord.source,
                     ),
-                    "fetched_at":  stmt.excluded.fetched_at,
-                    "name":        stmt.excluded.name,
-                    "tld":         stmt.excluded.tld,
-                    "registrar":   stmt.excluded.registrar,
-                    "expiry_date": stmt.excluded.expiry_date,
-                    "backlinks": case(
-                        (
-                            and_(
-                                stmt.excluded.backlinks.isnot(None),
-                                or_(
-                                    DomainRecord.backlinks.is_(None),
-                                    stmt.excluded.backlinks > DomainRecord.backlinks,
-                                ),
-                            ),
-                            stmt.excluded.backlinks,
-                        ),
-                        else_=DomainRecord.backlinks,
-                    ),
-                    "rank": case(
-                        (
-                            and_(
-                                stmt.excluded.rank.isnot(None),
-                                or_(
-                                    DomainRecord.rank.is_(None),
-                                    stmt.excluded.rank < DomainRecord.rank,  # lower = better
-                                ),
-                            ),
-                            stmt.excluded.rank,
-                        ),
-                        else_=DomainRecord.rank,
-                    ),
-                    "nlp_score": case(
-                        (DomainRecord.nlp_score.is_(None), stmt.excluded.nlp_score),
-                        else_=DomainRecord.nlp_score,
-                    ),
+                    "fetched_at":       stmt.excluded.fetched_at,
+                    "name":             stmt.excluded.name,
+                    "tld":              stmt.excluded.tld,
+                    "registrar":        stmt.excluded.registrar,
+                    "expiry_date":      stmt.excluded.expiry_date,
+                    "drop_date":        stmt.excluded.drop_date,
+                    "backlinks":        resolved_backlinks,
+                    "rank":             resolved_rank,
+                    "nlp_score":        resolved_nlp,
+                    "composite_score":  resolved_composite,
                     "is_real_word": case(
                         (DomainRecord.nlp_score.is_(None), stmt.excluded.is_real_word),
                         else_=DomainRecord.is_real_word,
@@ -290,6 +346,7 @@ class DomainStore:
                         else_=DomainRecord.tags,
                     ),
                 }
+
                 stmt = stmt.on_conflict_do_update(
                     index_elements=["fqdn"],
                     set_=on_conflict_dict,
@@ -342,11 +399,11 @@ class DomainStore:
             if max_rank is not None:
                 q = q.where(DomainRecord.rank <= max_rank)
             if within_days is not None:
-                now        = datetime.now(timezone.utc)
-                today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-                cutoff     = now + timedelta(days=within_days)
+                now    = datetime.now(timezone.utc)
+                cutoff = now + timedelta(days=within_days)
+                q = q.where(DomainRecord.drop_date.isnot(None))
+                q = q.where(DomainRecord.drop_date >= now.isoformat())
                 q = q.where(DomainRecord.drop_date <= cutoff.isoformat())
-                q = q.where(DomainRecord.drop_date >= today_start.isoformat())
 
             if real_words:
                 q = q.where(DomainRecord.is_real_word == True)
@@ -417,3 +474,10 @@ class DomainStore:
             "by_tld":    {row[0]: row[1] for row in tld_rows},
             "by_source": {row[0]: row[1] for row in source_rows},
         }
+
+    def get_all_fqdns(self) -> frozenset[str]:
+        """Return all FQDNs currently in the store as a frozenset for fast lookup."""
+        with self.engine.connect() as conn:
+            from sqlalchemy import text
+            rows = conn.execute(text("SELECT fqdn FROM domains")).fetchall()
+        return frozenset(row[0] for row in rows)

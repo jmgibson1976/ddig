@@ -12,47 +12,36 @@ Columns used:
 from __future__ import annotations
 
 import csv
-import io
 import logging
-from collections.abc import Iterator
 from datetime import datetime, timezone
+from typing import Iterator
 
 import requests
-import tldextract
 
 from ddig.models.domain import Domain
 from ddig.sources.base import DomainSource
+from ddig.storage.datastore import DomainStore
 
 log = logging.getLogger(__name__)
 
-CSV_URL   = "https://downloads.majestic.com/majestic_million.csv"
-SOURCE    = "majestic"
+CSV_URL = "https://downloads.majestic.com/majestic_million.csv"
+SOURCE  = "majestic"
+UA      = "ddig/1.0 (+https://github.com/your-org/ddig)"
 
 
 class MajesticMillionSource(DomainSource):
-    """Stream the Majestic Million CSV and yield Domain objects.
-
-    Each domain carries:
-      - backlinks  = RefSubNets  (referring subnets — best available proxy)
-      - rank       = GlobalRank
-      - source     = "majestic"
-
-    Because every domain in the list is *registered*, this source is useful
-    for enriching backlink data on domains already in the DB rather than
-    for finding expired/dropping domains directly.  Use it alongside CZDS
-    or DropCatch.
-    """
+    """Majestic Million CSV — enrichment-only, never creates new records."""
 
     name = SOURCE
 
     def __init__(
         self,
         *,
-        url:       str  = CSV_URL,
-        limit:     int  = 0,          # 0 = all 1M rows
-        min_rank:  int  = 0,          # skip rows with GlobalRank < min_rank
-        max_rank:  int  = 0,          # 0 = no upper limit
-        timeout:   int  = 120,
+        url:      str = CSV_URL,
+        limit:    int = 0,
+        min_rank: int = 0,
+        max_rank: int = 0,
+        timeout:  int = 120,
     ) -> None:
         self.url      = url
         self.limit    = limit
@@ -60,93 +49,57 @@ class MajesticMillionSource(DomainSource):
         self.max_rank = max_rank
         self.timeout  = timeout
         self._session = requests.Session()
-        self._session.headers["User-Agent"] = (
-            "Mozilla/5.0 (compatible; ddig/1.0; +https://github.com/yourusername/ddig)"
-        )
-
-    # ------------------------------------------------------------------ #
-    # DomainSource interface                                              #
-    # ------------------------------------------------------------------ #
+        self._session.headers["User-Agent"] = UA
 
     def is_available(self) -> bool:
-        """Always available — no credentials required."""
         return True
 
     def fetch(self) -> Iterator[Domain]:
-        log.info("Downloading Majestic Million CSV from %s…", self.url)
+        """
+        Enrich existing domains with backlinks and rank from Majestic Million.
+        Never creates new records — only yields domains already in the store.
+        """
+        store          = DomainStore()
+        existing_fqdns = store.get_all_fqdns()
 
         resp = self._session.get(self.url, timeout=self.timeout, stream=True)
         resp.raise_for_status()
 
-        # Stream the response line-by-line — file is ~45 MB uncompressed
-        lines   = resp.iter_lines(decode_unicode=True)
-        reader  = csv.DictReader(lines)
-
-        count   = 0
-        skipped = 0
-
+        count  = 0
+        reader = csv.DictReader(resp.iter_lines(decode_unicode=True))
         for row in reader:
-            try:
-                raw_domain  = (row.get("Domain") or "").strip().lower()
-                tld_raw     = (row.get("TLD")    or "").strip().lower().lstrip(".")
-                rank_raw    = (row.get("GlobalRank") or "0").strip()
-                refs_raw    = (row.get("RefSubNets") or "0").strip()
-
-                if not raw_domain or not tld_raw:
-                    skipped += 1
-                    continue
-
-                # Domain column is already the full domain e.g. "bit.ly"
-                # Use tldextract to get the registrable name without TLD
-                ext = tldextract.extract(raw_domain)
-                if not ext.domain:
-                    skipped += 1
-                    continue
-
-                # Rebuild fqdn from parts — don't double-append TLD
-                fqdn        = raw_domain if "." in raw_domain else f"{raw_domain}.{tld_raw}"
-                domain_name = ext.domain
-                tld_clean   = (ext.suffix or tld_raw).lstrip(".")
-
-                rank = _parse_int(rank_raw)
-                refs = _parse_int(refs_raw)
-
-                if self.min_rank and rank < self.min_rank:
-                    skipped += 1
-                    continue
-                if self.max_rank and rank > self.max_rank:
-                    skipped += 1
-                    continue
-
-                yield Domain(
-                    name       = domain_name,
-                    tld        = tld_clean,
-                    fqdn       = fqdn,
-                    source     = SOURCE,
-                    backlinks  = refs,
-                    rank       = rank,
-                    fetched_at = datetime.now(timezone.utc),
-                )
-
-                count += 1
-                if self.limit and count >= self.limit:
-                    log.info("Reached limit of %d domains — stopping.", self.limit)
-                    break
-
-            except Exception as exc:
-                log.debug("Skipping malformed row %r: %s", row, exc)
-                skipped += 1
+            domain = row.get("Domain", "").lower().strip()
+            tld    = row.get("TLD",    "").lower().strip()
+            if not domain or not tld:
                 continue
 
-        log.info("Majestic Million: yielded %d domains, skipped %d.", count, skipped)
+            fqdn = f"{domain}.{tld}"
+            if fqdn not in existing_fqdns:
+                continue
 
+            rank      = _parse_int(row.get("GlobalRank"))
+            backlinks = _parse_int(row.get("RefSubNets"))
 
-# ------------------------------------------------------------------ #
-# Parsing helpers                                                     #
-# ------------------------------------------------------------------ #
+            if self.min_rank and rank < self.min_rank:
+                continue
+            if self.max_rank and rank > self.max_rank:
+                continue
+
+            yield Domain(
+                name      = domain,
+                tld       = tld,
+                fqdn      = fqdn,
+                source    = SOURCE,
+                backlinks = backlinks or None,
+                rank      = rank      or None,
+            )
+
+            count += 1
+            if self.limit and count >= self.limit:
+                break
+
 
 def _parse_int(value: str | None) -> int:
-    """Parse an integer string, returning 0 on failure."""
     if not value:
         return 0
     try:

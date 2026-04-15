@@ -1,76 +1,56 @@
 # Majestic Million Source
 
-The Majestic Million is a free daily CSV of the top 1,000,000 domains on the
-web, ranked by the number of referring subnets (a strong backlink signal).
+## Overview
 
-## What It Provides
+Majestic Million is a **backlink enrichment source only** — it never creates new domain records. It cross-references the top 1,000,000 most-linked domains on the internet against existing dropping/expiring domains in the DB and updates their `backlinks` and `rank` fields.
 
-| Field       | CSV Column   | Description                              |
-|-------------|--------------|------------------------------------------|
-| `fqdn`      | Domain + TLD | Fully qualified domain name              |
-| `backlinks` | RefSubNets   | Referring subnets — best backlink proxy  |
-| `rank`      | GlobalRank   | Overall rank 1–1,000,000                 |
-| `source`    | —            | `majestic`                               |
+## What It Does
 
-## Authentication
+1. Downloads the Majestic Million CSV (~15MB, no auth required)
+2. Loads all existing FQDNs from the DB into a `frozenset`
+3. For each Majestic row — skips if FQDN not already in DB
+4. Yields only matching domains with `backlinks` (RefSubNets) and `rank` (GlobalRank)
+5. `upsert_many()` updates `backlinks` (highest wins) and `rank` (lowest wins) and recomputes `composite_score`
 
-None required. The CSV is publicly available at:
+## What It Does NOT Do
 
-```
-https://downloads.majestic.com/majestic_million.csv
-```
-
-No API key, no account, no rate limiting.
+- ❌ Does not create new records
+- ❌ Does not insert registered domains (google.com, facebook.com etc.)
+- ❌ Does not overwrite `nlp_score` or any NLP fields
 
 ## Usage
 
 ```bash
-# Fetch all 1M domains (~45 MB download, ~2 min)
-ddig fetch --source majestic
-
-# Fetch top 100K only
-ddig fetch --source majestic --limit 100000
-
-# Fetch only top 10K (fastest, best signal)
-ddig fetch --source majestic --max-rank 10000
-
-# Fetch mid-tier (rank 100K–500K) — less competitive, more opportunity
-ddig fetch --source majestic --min-rank 100000 --max-rank 500000
-
-# Verbose output
-ddig fetch --source majestic --limit 10000 --verbose
+# Enrich existing dropping domains with backlink data
+ddig fetch --source majestic --verbose
 ```
 
-## Primary Use Case — Backlink Enrichment
+## Feed
 
-Because every domain in the list is currently *registered*, this source is
-most useful for **enriching backlink data** on domains already in the DB:
+| Property | Value |
+|----------|-------|
+| URL | `https://downloads.majestic.com/majestic_million.csv` |
+| Format | CSV |
+| Auth | None |
+| Size | ~15MB |
+| Frequency | Updated daily |
 
-```bash
-# 1. Fetch CZDS zone file for .app (finds all registered .app domains)
-ddig fetch --source czds --tlds app
+## Fields Populated
 
-# 2. Enrich backlink counts from Majestic
-ddig fetch --source majestic
+| Field | Source Column | Merge Rule |
+|-------|--------------|------------|
+| `backlinks` | `RefSubNets` | Highest value kept |
+| `rank` | `GlobalRank` | Lowest (best) value kept |
+| `composite_score` | Computed | Recomputed after backlinks/rank update |
 
-# 3. Search for high-backlink short .app domains
-ddig search --tld app --max-length 6 --min-backlinks 100 --no-numbers --no-hyphens
+## Effect on `composite_score`
+
+After enrichment, `composite_score` is automatically recomputed for any domain that gains backlinks or rank data:
+
+```
+composite = nlp_score × 0.50
+          + log_normalise(backlinks) × 0.30
+          + inverse_log_normalise(rank) × 0.20
 ```
 
-The upsert keeps the **highest backlink value** seen across sources, so running
-Majestic after CZDS enriches existing rows without overwriting other fields.
-
-## Performance
-
-| Mode            | Rows    | Time    |
-|-----------------|---------|---------|
-| Full 1M         | 1,000,000 | ~2 min  |
-| Top 100K        | 100,000   | ~15 sec |
-| Top 10K         | 10,000    | ~5 sec  |
-
-## Notes
-
-- File is regenerated daily — re-run to refresh backlink data
-- `RefSubNets` is a better signal than raw backlink count (deduplicates subnet noise)
-- `.com` dominates (70%+) — use `--min-rank` / `--max-rank` with TLD filters for variety
-- No caching — file is small enough to re-download each time
+Domains with Majestic data will score higher than NLP-only domains and float to the top of `ddig search --sort composite`.

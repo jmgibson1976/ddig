@@ -206,3 +206,7 @@ CZDS_TOKEN=eyJhbGci...    # JWT, ~1193 chars, expires ~1h — auto-refreshed by 
 - Run a quick check before committing: look for red squiggles in VS Code Problems panel (`Cmd+Shift+M`)
 - All `Optional` fields need `is not None` guards before arithmetic comparisons
 - Use `bool(value >= threshold)` to convert float comparisons to bool explicitly
+
+### Sources (`ddig/sources/`)
+- **Majestic is enrichment-only** — never creates new records, only updates `backlinks` and `rank` on existing dropping/expiring domains
+- ❌ Don't let Majestic insert new rows — always filter against `store.get_all_fqdns()` first
