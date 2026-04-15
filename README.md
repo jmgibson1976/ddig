@@ -49,6 +49,7 @@ cp .env.example .env
 | `ddig watch remove <fqdn>` | Unpin one or more domains |
 | `ddig watch clear` | Remove all watched domains |
 | `ddig doctor` | Check env, credentials, dependencies, and DB |
+| `ddig purge` | Remove domains with no drop date from the database |
 | `ddig ed-debug` | Inspect ExpiredDomains login form fields |
 | `ddig czds-auth` | Re-authenticate with ICANN CZDS |
 | `ddig czds-tlds` | List all approved CZDS TLDs |

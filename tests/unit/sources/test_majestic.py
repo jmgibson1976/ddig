@@ -16,22 +16,22 @@ from ddig.models.domain import Domain
 
 SAMPLE_CSV = """\
 GlobalRank,TldRank,Domain,TLD,RefSubNets,RefIPs,IDN_Domain,IDN_TLD,PrevGlobalRank,PrevTldRank,PrevRefSubNets,PrevRefIPs
-1,1,google,com,1000000,2000000,google,com,1,1,999000,1990000
-2,2,youtube,com,900000,1800000,youtube,com,2,2,890000,1780000
-3,3,facebook,com,800000,1600000,facebook,com,3,3,790000,1580000
-4,4,twitter,com,700000,1400000,twitter,com,4,4,690000,1380000
-5,1,wikipedia,org,600000,1200000,wikipedia,org,5,1,590000,1180000
-6,1,atlas,app,500000,1000000,atlas,app,6,1,490000,980000
-7,1,forge,io,400000,800000,forge,io,7,1,390000,780000
-8,1,pixel,dev,300000,600000,pixel,dev,8,1,290000,580000
+1,1,google.com,com,1000000,2000000,google.com,com,1,1,999000,1990000
+2,2,youtube.com,com,900000,1800000,youtube.com,com,2,2,890000,1780000
+3,3,facebook.com,com,800000,1600000,facebook.com,com,3,3,790000,1580000
+4,4,twitter.com,com,700000,1400000,twitter.com,com,4,4,690000,1380000
+5,1,wikipedia.org,org,600000,1200000,wikipedia.org,org,5,1,590000,1180000
+6,1,atlas.app,app,500000,1000000,atlas.app,app,6,1,490000,980000
+7,1,forge.io,io,400000,800000,forge.io,io,7,1,390000,780000
+8,1,pixel.dev,dev,300000,600000,pixel.dev,dev,8,1,290000,580000
 """
 
 MALFORMED_CSV = """\
 GlobalRank,TldRank,Domain,TLD,RefSubNets,RefIPs
 1,1,,com,1000,2000
 2,1,nodomain,,500,1000
-3,1,valid,com,abc,def
-4,1,good,net,250,500
+3,1,valid.com,com,abc,def
+4,1,good.net,net,250,500
 """
 
 MALFORMED_FQDNS: frozenset[str] = frozenset({
@@ -190,7 +190,7 @@ class TestFetchParsesCsv:
     def test_fqdn_not_doubled(self):
         csv_data = (
             "GlobalRank,TldRank,Domain,TLD,RefSubNets,RefIPs\n"
-            "1,1,bit,ly,5000,10000\n"
+            "1,1,bit.ly,ly,5000,10000\n"
         )
         src  = MajesticMillionSource()
         resp = _mock_streaming_response(csv_data)
@@ -202,7 +202,7 @@ class TestFetchParsesCsv:
         assert domains[0].tld  == "ly"
 
     def test_domain_name_lowercased(self):
-        csv_data = "GlobalRank,TldRank,Domain,TLD,RefSubNets,RefIPs\n1,1,GOOGLE,COM,1000,2000\n"
+        csv_data = "GlobalRank,TldRank,Domain,TLD,RefSubNets,RefIPs\n1,1,GOOGLE.COM,COM,1000,2000\n"
         src  = MajesticMillionSource()
         resp = _mock_streaming_response(csv_data)
         with patch.object(src._session, "get", return_value=resp), \

@@ -44,6 +44,7 @@ ruff format ddig/
 | `ddig watch remove <fqdn>` | Unpin domains |
 | `ddig watch clear` | Clear the entire watchlist |
 | `ddig doctor` | Check env, credentials, dependencies, and DB in one shot |
+| `ddig purge` | Remove domains with no drop_date from the database |
 | `ddig ed-debug` | Open Playwright browser to inspect ExpiredDomains login form fields |
 | `ddig czds-auth` | Re-authenticate with ICANN CZDS via Playwright, capture JWT, save to .env |
 | `ddig czds-tlds` | List all CZDS TLDs you are approved to download |
@@ -72,6 +73,7 @@ ddig/
 │       │   ├── test_doctor_command.py    # ddig doctor CLI tests
 │       │   ├── test_export_command.py    # ddig export CLI tests
 │       │   ├── test_fetch_command.py     # ddig fetch CLI tests
+│       │   ├── test_purge_command.py     # ddig purge CLI tests
 │       │   ├── test_score_command.py     # ddig score CLI tests
 │       │   ├── test_search_command.py    # ddig search CLI tests
 │       │   ├── test_stats_command.py     # ddig stats CLI tests
@@ -86,6 +88,7 @@ ddig/
 │       └── storage/
 │           ├── test_datastore_search.py  # DomainStore.search() filter tests
 │           ├── test_datastore_upsert.py  # DomainStore.upsert_many() tests
+│           ├── test_datastore_purge.py   # DomainStore.purge_no_drop_date() tests
 │           └── test_datastore_watchlist.py # DomainStore watchlist method tests
 ├── docs/
 │   ├── database.md          # Schema, SQL queries, maintenance
@@ -234,8 +237,9 @@ CZDS_TOKEN=eyJhbGci...    # JWT, ~1193 chars, expires ~1h — auto-refreshed by 
 - ❌ Don't ignore Pylance type errors — always add `None` guards before comparing `Optional` fields
 - ❌ Don't use bare `float` comparisons against `Optional[float]` — Pylance will flag `>=` on `float | None`
 - ❌ Don't pass `float` where `bool` is expected — `is_pronounceable` must be `bool`, not a raw score
-- ❌ Don't construct `Domain(**defaults)` in test helpers with arbitrary kwargs — always check `domain.py` for the exact field names, types, and defaults before writing a `_domain()` or `_make_domain()` helper. Wrong field names or types cause `TypeError` at runtime, not at import time.
+- ❌ Don't construct `fqdn = f"{Domain}.{TLD}"` from Majestic CSV — `Domain` is already the full FQDN (e.g. `google.com`), appending TLD produces `google.com.com`
 - ❌ Don't add fields to `_domain()` helpers that don't exist on the `Domain` dataclass — check `ddig/models/domain.py` first
+- ❌ Don't construct `Domain(**defaults)` in test helpers with arbitrary kwargs — always check `domain.py` for the exact field names, types, and defaults before writing a `_domain()` or `_make_domain()` helper. Wrong field names or types cause `TypeError` at runtime, not at import time
 
 ## Type Checking
 

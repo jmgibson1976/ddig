@@ -552,3 +552,14 @@ class DomainStore:
         with self.engine.begin() as conn:
             result = conn.execute(sa_delete(WatchlistRecord))
         return result.rowcount
+
+    def purge_no_drop_date(self) -> int:
+        """Remove all domains where drop_date is NULL. Returns count deleted."""
+        from sqlalchemy import text
+        with self.engine.begin() as conn:
+            result = conn.execute(
+                text("DELETE FROM domains WHERE drop_date IS NULL")
+            )
+            count = result.rowcount
+            log.debug("Purged %d domains with no drop_date", count)
+            return count

@@ -5,9 +5,12 @@ URL: https://downloads.majestic.com/majestic_million.csv
 
 Columns used:
   GlobalRank   — overall rank 1–1,000,000
-  Domain       — registered domain (no TLD prefix)
-  TLD          — TLD without leading dot
+  Domain       — full FQDN e.g. "google.com" (NOT just the SLD — do not append TLD)
+  TLD          — TLD without leading dot e.g. "com"
   RefSubNets   — referring subnets (used as backlinks proxy)
+
+Note: fqdn = Domain column as-is. Constructing f"{Domain}.{TLD}" produces
+duplicates like "google.com.com" — the Domain column already includes the TLD.
 """
 from __future__ import annotations
 
@@ -68,12 +71,17 @@ class MajesticMillionSource(DomainSource):
         count  = 0
         reader = csv.DictReader(resp.iter_lines(decode_unicode=True))
         for row in reader:
-            domain = row.get("Domain", "").lower().strip()
-            tld    = row.get("TLD",    "").lower().strip()
-            if not domain or not tld:
+            domain_col = row.get("Domain", "").lower().strip()
+            tld        = row.get("TLD",    "").lower().strip()
+            if not domain_col or not tld:
                 continue
 
-            fqdn = f"{domain}.{tld}"
+            # Domain column is already the full FQDN (e.g. "google.com")
+            # TLD column is just the TLD (e.g. "com")
+            # name = everything before the first dot
+            fqdn = domain_col
+            name = domain_col[: domain_col.rfind(".")] if "." in domain_col else domain_col
+
             if fqdn not in existing_fqdns:
                 continue
 
@@ -86,7 +94,7 @@ class MajesticMillionSource(DomainSource):
                 continue
 
             yield Domain(
-                name      = domain,
+                name      = name,
                 tld       = tld,
                 fqdn      = fqdn,
                 source    = SOURCE,

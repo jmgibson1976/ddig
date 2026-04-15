@@ -742,6 +742,28 @@ def ed_debug(
 
 # ---------------------------------------------------------------------------
 
+@app.command()
+def purge(
+    db:      Path = typer.Option(DEFAULT_DB_PATH, "--db"),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show what would be deleted without deleting"),
+) -> None:
+    """Remove domains with no drop_date from the database."""
+    _setup_logging(verbose)
+    store = DomainStore(db_path=db)
+
+    if dry_run:
+        from sqlalchemy import text
+        with store.engine.connect() as conn:
+            count = conn.execute(text("SELECT COUNT(*) FROM domains WHERE drop_date IS NULL")).scalar()
+        console.print(f"[yellow]dry-run:[/yellow] would delete {count:,} domains with no drop_date")
+        return
+
+    count = store.purge_no_drop_date()
+    console.print(f"[green]✓[/green] Purged [bold]{count:,}[/bold] domains with no drop_date")
+
+# ---------------------------------------------------------------------------
+
 def main() -> None:
     app()
 

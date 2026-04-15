@@ -35,6 +35,18 @@ ddig fetch --source majestic --verbose
 | Size | ~15MB |
 | Frequency | Updated daily |
 
+## CSV Column Notes
+
+| Column | Value | Notes |
+|--------|-------|-------|
+| `Domain` | Full FQDN e.g. `google.com` | **Already includes TLD** — do not append TLD again |
+| `TLD` | TLD only e.g. `com` | Used for the `tld` field only |
+| `GlobalRank` | Integer rank 1–1,000,000 | Stored as `rank` — lower is better |
+| `RefSubNets` | Integer backlink count | Stored as `backlinks` — higher is better |
+
+> ⚠️ Do not construct `fqdn = f"{Domain}.{TLD}"` — this produces `google.com.com`.
+> The `Domain` column is already the full FQDN. Use it as-is.
+
 ## Fields Populated
 
 | Field | Source Column | Merge Rule |
@@ -54,3 +66,9 @@ composite = nlp_score × 0.50
 ```
 
 Domains with Majestic data will score higher than NLP-only domains and float to the top of `ddig search --sort composite`.
+
+## Limitations
+
+- Only covers the top 1,000,000 domains by referring subnets
+- Most dropping domains will **not** appear in Majestic — typical match rate is < 1% of the DB
+- Run after `ddig fetch --source dropcatch` to maximise match rate
