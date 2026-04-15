@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+# Generates a commit message from staged diff using GitHub Models API.
+# Install: cp .github/hooks/prepare-commit-msg .git/hooks/prepare-commit-msg && chmod +x .git/hooks/prepare-commit-msg
+
+COMMIT_MSG_FILE=$1
+COMMIT_SOURCE=$2
+
+# Only auto-fill for blank commits (not amend, merge, squash, etc.)
+if [[ "$COMMIT_SOURCE" == "merge" || "$COMMIT_SOURCE" == "squash" || "$COMMIT_SOURCE" == "commit" ]]; then
+  exit 0
+fi
+
+BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null)
+
+# Skip on main/master
+if [[ "$BRANCH" == "main" || "$BRANCH" == "master" || -z "$BRANCH" ]]; then
+  exit 0
+fi
+
+# Derive type from branch prefix
+if [[ "$BRANCH" =~ ^([a-z]+)/ ]]; then
+  TYPE="${BASH_REMATCH[1]}"
+else
+  TYPE="chore"
+fi
+
+# Get staged diff (truncate to 8000 chars to stay within token limits)
+DIFF=$(git diff --cached 2>/dev/null | head -c 8000)
+
+if [[ -z "$DIFF" ]]; then
+  exit 0
+fi
+
+# Get GitHub token
+GH_TOKEN=$(gh auth token 2>/dev/null)
+if [[ -z "$GH_TOKEN" ]]; then
+  echo "ℹ️  gh auth token not available — skipping auto commit message"
+  exit 0
+fi
+
+PROMPT="You are an expert at writing git commit messages following the Conventional Commits specification.
+
+Given the following staged diff from branch '$BRANCH' (type: $TYPE), write a commit message.
+
+Rules:
+- First line: '$TYPE: <short imperative description>' — max 72 chars
+- Blank line after first line
+- Body: bullet points describing WHAT changed and WHY, one per file/module changed
+- Use present tense imperative: 'add', 'fix', 'update', 'remove' — not 'added', 'fixes'
+- Be specific — mention file names, function names, or behaviour changes
+- Do NOT wrap in markdown code blocks
+- Do NOT include any commentary, just the raw commit message
+
+Diff:
+$DIFF"
+
+# Escape prompt for JSON
+ESCAPED_PROMPT=$(echo "$PROMPT" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read()))")
+
+RESPONSE=$(curl -s \
+  -H "Authorization: Bearer $GH_TOKEN" \
+  -H "Content-Type: application/json" \
+  https://models.inference.ai.azure.com/chat/completions \
+  -d "{\"model\":\"gpt-4o-mini\",\"messages\":[{\"role\":\"user\",\"content\":$ESCAPED_PROMPT}],\"temperature\":0.2}")
+
+MESSAGE=$(echo "$RESPONSE" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    print(data['choices'][0]['message']['content'].strip())
+except Exception as e:
+    sys.exit(1)
+")
+
+if [[ -z "$MESSAGE" ]]; then
+  echo "ℹ️  Could not generate commit message — writing template instead"
+  echo "$TYPE: " > "$COMMIT_MSG_FILE"
+  exit 0
+fi
+
+# Write generated message + branch context as comment
+cat > "$COMMIT_MSG_FILE" <<EOF
+$MESSAGE
+
+# Branch: $BRANCH
+# To override: edit the message above before saving
+EOF
