@@ -6,6 +6,7 @@ import pytest
 from ddig.models.domain import Domain
 from ddig.nlp.scorer import (
     DomainScorer,
+    _bigram_score,
     _normalise_backlinks,
     _normalise_rank,
     _score_length,
@@ -171,3 +172,58 @@ class TestComputeComposite:
     def test_result_rounded_to_4dp(self):
         result = compute_composite(0.7531, 12345, 6789)
         assert result == round(result, 4)
+
+
+class TestBigramScore:
+    def test_common_bigrams_score_high(self):
+        # "there" — th, he, er, re — all very common
+        assert _bigram_score("there") > 0.8
+
+    def test_rare_bigrams_score_low(self):
+        # "xkzbt" — all rare pairs
+        assert _bigram_score("xkzbt") < 0.2
+
+    def test_single_char_returns_1(self):
+        assert _bigram_score("x") == 1.0
+
+    def test_two_char_common_scores_high(self):
+        assert _bigram_score("th") == 1.0
+
+    def test_two_char_rare_scores_low(self):
+        assert _bigram_score("xk") < 0.1
+
+    def test_unknown_bigram_gets_default(self):
+        # "wq" is not in the table at all — falls back to 0.15
+        assert _bigram_score("wq") == pytest.approx(0.15, abs=0.05)
+
+    def test_result_between_0_and_1(self):
+        for name in ["flux", "google", "xkzbt", "apple", "th", "zz"]:
+            assert 0.0 <= _bigram_score(name) <= 1.0
+
+
+class TestScorePronouncability:
+    def test_common_english_word_scores_high(self):
+        # "there" — th, he, er, re — all top-tier bigrams
+        assert _score_pronounceability("there") > 0.6
+
+    def test_gibberish_scores_low(self):
+        assert _score_pronounceability("xkzbt") < 0.3
+
+    def test_empty_returns_0(self):
+        assert _score_pronounceability("") == 0.0
+
+    def test_flux_is_pronounceable(self):
+        # "flux" has fl (common), lu (ok), ux (ok) — should score reasonably
+        assert _score_pronounceability("flux") > 0.4
+
+    def test_common_scores_higher_than_gibberish(self):
+        assert _score_pronounceability("forge") > _score_pronounceability("xkzbt")
+
+    def test_result_between_0_and_1(self):
+        for name in ["apple", "flux", "xkzbt", "google", "stripe", "z"]:
+            score = _score_pronounceability(name)
+            assert 0.0 <= score <= 1.0
+
+    def test_result_rounded_to_4dp(self):
+        score = _score_pronounceability("apple")
+        assert score == round(score, 4)
