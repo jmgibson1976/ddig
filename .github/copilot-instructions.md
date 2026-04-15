@@ -255,3 +255,13 @@ CZDS_TOKEN=eyJhbGci...    # JWT, ~1193 chars, expires ~1h — auto-refreshed by 
 ## Communication Rules
 
 - **One command per code block** — never batch multiple shell commands into a single block
+
+## Git Workflow
+
+- Branch naming: `<type>/<short-description>` e.g. `feat/namejet-source`, `fix/czds-auth`, `hotfix/upsert-crash`
+- Supported types: `feat`, `fix`, `hotfix`, `refactor`, `test`, `docs`, `chore`
+- On `git push`, the pre-push hook auto-creates a **draft PR** via `gh` CLI
+- Hook source: `.github/hooks/pre-push` — install with:
+  `cp .github/hooks/pre-push .git/hooks/pre-push && chmod +x .git/hooks/pre-push`
+- PRs are created as **drafts** — mark ready for review manually
+- PR title format: `[type] short description` derived from branch name
