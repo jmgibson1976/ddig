@@ -12,16 +12,13 @@ fi
 
 BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null)
 
-# Skip on main/master
-if [[ "$BRANCH" == "main" || "$BRANCH" == "master" || -z "$BRANCH" ]]; then
-  exit 0
-fi
-
-# Derive type from branch prefix
+# Derive type from branch prefix if available, otherwise let the LLM infer it
 if [[ "$BRANCH" =~ ^([a-z]+)/ ]]; then
   TYPE="${BASH_REMATCH[1]}"
+  BRANCH_HINT="Branch: $BRANCH (type hint: $TYPE)"
 else
-  TYPE="chore"
+  TYPE=""
+  BRANCH_HINT="Branch: $BRANCH (no type prefix — infer type from the diff)"
 fi
 
 # Get staged diff (truncate to 8000 chars to stay within token limits)
@@ -34,24 +31,25 @@ fi
 # Get GitHub token
 GH_TOKEN=$(gh auth token 2>/dev/null)
 if [[ -z "$GH_TOKEN" ]]; then
-  echo "ℹ️  gh auth token not available — skipping auto commit message"
   exit 0
 fi
 
 PROMPT="You are an expert at writing git commit messages following the Conventional Commits specification.
 
-Given the following staged diff from branch '$BRANCH' (type: $TYPE), write a commit message.
+$BRANCH_HINT
+
+Infer the correct type from this list if not provided: feat | fix | hotfix | refactor | test | docs | chore
 
 Rules:
-- First line: '$TYPE: <short imperative description>' — max 72 chars
+- First line: '<type>: <short imperative description>' — max 72 chars, no period
 - Blank line after first line
 - Body: bullet points describing WHAT changed and WHY, one per file/module changed
-- Use present tense imperative: 'add', 'fix', 'update', 'remove' — not 'added', 'fixes'
+- Use present tense imperative: 'add', 'fix', 'update', 'remove' — not 'added', 'fixed'
 - Be specific — mention file names, function names, or behaviour changes
 - Do NOT wrap in markdown code blocks
-- Do NOT include any commentary, just the raw commit message
+- Do NOT include any preamble or commentary — output ONLY the raw commit message
 
-Diff:
+Staged diff:
 $DIFF"
 
 # Escape prompt for JSON
@@ -68,13 +66,11 @@ import sys, json
 try:
     data = json.load(sys.stdin)
     print(data['choices'][0]['message']['content'].strip())
-except Exception as e:
+except Exception:
     sys.exit(1)
 ")
 
 if [[ -z "$MESSAGE" ]]; then
-  echo "ℹ️  Could not generate commit message — writing template instead"
-  echo "$TYPE: " > "$COMMIT_MSG_FILE"
   exit 0
 fi
 
@@ -83,5 +79,5 @@ cat > "$COMMIT_MSG_FILE" <<EOF
 $MESSAGE
 
 # Branch: $BRANCH
-# To override: edit the message above before saving
+# Edit the message above if needed, then save and close to commit.
 EOF
