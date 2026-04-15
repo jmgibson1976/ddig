@@ -293,12 +293,16 @@ ddig czds-auth --verbose
 
 ## Sources
 
-| Source           | Auth Required              | Volume             | Docs                                  |
-|------------------|----------------------------|--------------------|---------------------------------------|
-| `dropcatch`      | None                       | ~500–2K/day        | [docs/sources/dropcatch.md]           |
-| `expireddomains` | Free account + two cookies | ~25/page (free)    | [docs/sources/expireddomains.md]      |
-| `czds`           | ICANN account + approval   | Millions/TLD       | [docs/sources/czds.md]                |
-| `majestic`       | None                       | Enrichment only — updates backlinks/rank on existing records | [docs/sources/majestic.md] |
+| Source           | Auth Required              | Volume                        | Run Regularly? | Docs                             |
+|------------------|----------------------------|-------------------------------|----------------|----------------------------------|
+| `dropcatch`      | None                       | ~500K/day                     | ✅ Daily        | [docs/sources/dropcatch.md]      |
+| `expireddomains` | Free account + two cookies | ~25/page (free)               | ✅ Daily        | [docs/sources/expireddomains.md] |
+| `majestic`       | None                       | Enrichment only               | ✅ After fetch  | [docs/sources/majestic.md]       |
+| `czds`           | ICANN account + approval   | Millions/TLD — use carefully  | ⚠️ Intentional only | [docs/sources/czds.md]      |
+
+> **Note:** CZDS provides full TLD zone files (all registered domains), not dropping domains.
+> It does not add expiry or drop date signal. Use it only to pre-score a specific TLD you are
+> actively monitoring. For day-to-day use, `dropcatch` is sufficient.
 
 ## Environment Variables
 

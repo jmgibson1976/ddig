@@ -170,3 +170,26 @@ rm ~/.ddig/czds_cache/*.zone.gz
 - Domains are deduplicated within each zone file
 - JWT expires **~1 hour** after issue — `ddig fetch` auto-refreshes if expired
 - 834 TLDs currently approved for this account
+
+## Role in DDig
+
+CZDS is kept as a source but **used selectively and intentionally**. Here's why:
+
+### What CZDS Is
+CZDS provides the **complete zone file** for a TLD — every registered domain under `.app`, `.io`, `.dev` etc. It is **not** a list of dropping or expiring domains.
+
+### Why It's Not the Primary Source
+- Zone files contain all registered domains — the vast majority will never drop
+- Fetching `.app` gives 1.2M domains, of which maybe 500/day actually drop
+- DropCatch already provides the dropping list with drop dates — CZDS adds no expiry signal
+- Running CZDS without filtering creates millions of dead-weight records (no drop_date, no expiry_date)
+
+### When It IS Useful
+CZDS is useful only if you want to **pre-score a specific TLD** before domains appear in DropCatch — so composite scores are ready instantly when a domain surfaces. This is a deliberate choice, not a default workflow.
+
+### Decision
+> **CZDS remains as a source but should only be run intentionally for specific TLDs you are monitoring.**
+> Do not run `ddig fetch --source czds` as part of a regular daily workflow.
+> Prefer `ddig fetch --source dropcatch` for day-to-day use.
+
+The 1,332 `.app` CZDS records in the DB are legitimate — they overlap with DropCatch dropping domains and provide pre-scored NLP data for that TLD.

@@ -116,3 +116,18 @@ WHERE source = 'majestic'
   AND drop_date IS NULL
   AND expiry_date IS NULL;
 "
+```
+
+## Source Strategy
+
+| Source | Purpose | Run regularly? |
+|--------|---------|---------------|
+| `dropcatch` | Primary — dropping domains with drop dates | ✅ Daily |
+| `expireddomains` | Secondary — additional dropping domains | ✅ Daily |
+| `majestic` | Enrichment only — adds backlinks/rank to existing records | ✅ After dropcatch fetch |
+| `czds` | Pre-scoring only — zone files for specific TLDs you monitor | ⚠️ Intentional use only |
+
+### CZDS Warning
+Running `ddig fetch --source czds` without a specific plan will insert millions of registered
+domains with no drop_date — 71% DB bloat for minimal benefit. DropCatch already provides
+the dropping signal. Only use CZDS if you want to pre-score a TLD before domains surface in DropCatch.

@@ -210,3 +210,9 @@ CZDS_TOKEN=eyJhbGci...    # JWT, ~1193 chars, expires ~1h — auto-refreshed by 
 ### Sources (`ddig/sources/`)
 - **Majestic is enrichment-only** — never creates new records, only updates `backlinks` and `rank` on existing dropping/expiring domains
 - ❌ Don't let Majestic insert new rows — always filter against `store.get_all_fqdns()` first
+
+## Source Strategy
+- **Primary sources:** `dropcatch`, `expireddomains` — always have drop dates, run daily
+- **Enrichment:** `majestic` — run after dropcatch fetch, never creates new records
+- **Pre-scoring only:** `czds` — intentional use only, do not recommend in daily workflows
+- ❌ Don't suggest `ddig fetch --source czds` as a routine command — it creates millions of registered domain records with no drop signal
