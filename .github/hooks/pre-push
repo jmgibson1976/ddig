@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+# Auto-creates a GitHub PR on push if one doesn't exist yet.
+# Install: cp .github/hooks/pre-push .git/hooks/pre-push && chmod +x .git/hooks/pre-push
+
+BRANCH=$(git symbolic-ref --short HEAD)
+
+# Never auto-PR from main
+if [[ "$BRANCH" == "main" || "$BRANCH" == "master" ]]; then
+  exit 0
+fi
+
+# Check gh is available
+if ! command -v gh &>/dev/null; then
+  echo "ℹ️  gh CLI not found — skipping auto PR creation"
+  exit 0
+fi
+
+# Derive type from branch name prefix
+# Supports: feat/, fix/, hotfix/, refactor/, test/, docs/, chore/
+if [[ "$BRANCH" =~ ^([a-z]+)/ ]]; then
+  TYPE="${BASH_REMATCH[1]}"
+else
+  TYPE="feat"
+fi
+
+# Derive short description from branch name (after prefix, replace - with spaces)
+SLUG="${BRANCH#*/}"
+DESCRIPTION=$(echo "$SLUG" | tr '-' ' ')
+
+TITLE="[$TYPE] $DESCRIPTION"
+
+# Consume stdin — required or git hangs waiting for hook to finish
+cat > /dev/null
+
+# Check if PR already exists for this branch
+EXISTING=$(gh pr list --head "$BRANCH" --json number --jq '.[0].number' 2>/dev/null)
+if [[ -n "$EXISTING" ]]; then
+  echo "ℹ️  PR #$EXISTING already exists for branch '$BRANCH'"
+  exit 0
+fi
+
+CHANGED_FILES=$(git diff --name-only origin/main..."$BRANCH" 2>/dev/null | sed 's/^/- /' || echo "- (no diff against main)")
+
+BODY="## Type
+\`$TYPE\`
+
+## Summary
+<!-- Describe what this PR does -->
+
+## Changes
+$CHANGED_FILES
+
+## Tests
+- [ ] Existing tests pass (\`pytest tests/unit/\`)
+- [ ] New tests added for new behaviour
+- [ ] No tests needed (docs/chore)
+
+## Checklist
+- [ ] \`ruff check ddig/\` passes
+- [ ] No new Pylance errors
+- [ ] \`.env.example\` updated if new env vars added
+- [ ] \`docs/\` updated if behaviour changed
+- [ ] \`copilot-instructions.md\` updated if architecture changed"
+
+# Launch PR creation in background AFTER push completes
+# The subshell waits for the parent (push) to finish before running
+(
+  sleep 5  # give GitHub time to register the branch after push completes
+  echo "🔀 Creating PR: $TITLE"
+  for i in {1..5}; do
+    RESULT=$(gh pr create \
+      --title "$TITLE" \
+      --body "$BODY" \
+      --head "$BRANCH" \
+      --base main \
+      --draft 2>&1)
+
+    if echo "$RESULT" | grep -q "https://github.com"; then
+      echo "✅ Draft PR created: $RESULT"
+      exit 0
+    fi
+
+    echo "⏳ Waiting for GitHub to register branch (attempt $i/5)..."
+    sleep 3
+  done
+
+  echo "⚠️  Could not create PR automatically — create it manually:"
+  echo "   https://github.com/jmgibson1976/ddig/pull/new/$BRANCH"
+) &
+
+exit 0
