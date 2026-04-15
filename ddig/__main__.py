@@ -568,9 +568,10 @@ def czds_auth(
 
 @app.command()
 def doctor(
+    db:      Path = typer.Option(DEFAULT_DB_PATH, "--db"),
     verbose: bool = typer.Option(False, "--verbose", "-v"),
 ) -> None:
-    """Check environment, credentials, and dependencies."""
+    """Check environment, credentials, dependencies, CLI tools, git hooks, and database."""
     _setup_logging(verbose)
 
     console.print("\n[bold]DDig Environment Check[/bold]\n")
@@ -656,67 +657,20 @@ def doctor(
     console.print(table)
     console.print()
 
-    # ── CLI Tools ──────────────────────────────────────────────────
-    import shutil
-    import subprocess
-    console.print("[bold]CLI Tools[/bold]")
+    # ── Database ───────────────────────────────────────────────────
+    console.print("[bold]Database[/bold]")
     table = Table(show_header=False, box=None, padding=(0, 2))
     table.add_column(style="dim",  min_width=24)
     table.add_column(min_width=50)
 
-    # git
-    git_path = shutil.which("git")
-    if git_path:
-        try:
-            git_ver = subprocess.check_output(["git", "--version"], text=True).strip()
-            table.add_row("git", f"[green]✓[/green] {git_ver}  [dim]{git_path}[/dim]")
-        except Exception:
-            table.add_row("git", f"[green]✓ found[/green]  [dim]{git_path}[/dim]")
-    else:
-        table.add_row("git", "[red]✗ not found[/red]  →  brew install git")
-
-    # gh CLI
-    gh_path = shutil.which("gh")
-    if gh_path:
-        try:
-            gh_ver = subprocess.check_output(["gh", "--version"], text=True).splitlines()[0].strip()
-            table.add_row("gh", f"[green]✓[/green] {gh_ver}  [dim]{gh_path}[/dim]")
-        except Exception:
-            table.add_row("gh", f"[green]✓ found[/green]  [dim]{gh_path}[/dim]")
-    else:
-        table.add_row("gh", "[red]✗ not found[/red]  →  brew install gh")
-
-    # gh auth status
-    if gh_path:
-        try:
-            result = subprocess.run(
-                ["gh", "auth", "status"],
-                capture_output=True, text=True
-            )
-            if result.returncode == 0:
-                # extract the "Logged in to..." line
-                auth_line = next(
-                    (l.strip() for l in result.stderr.splitlines() if "Logged in" in l),
-                    "authenticated"
-                )
-                table.add_row("gh auth", f"[green]✓[/green] {auth_line}")
-            else:
-                table.add_row("gh auth", "[red]✗ not authenticated[/red]  →  gh auth login")
-        except Exception:
-            table.add_row("gh auth", "[yellow]⚠ could not determine auth status[/yellow]")
-
-    # git hooks installed
-    hooks_dir  = Path(__file__).parent.parent / ".git" / "hooks"
-    for hook in ["pre-push", "prepare-commit-msg", "post-commit"]:
-        hook_path = hooks_dir / hook
-        if hook_path.exists() and hook_path.stat().st_mode & 0o111:
-            table.add_row(f"hook: {hook}", "[green]✓ installed[/green]")
-        else:
-            table.add_row(
-                f"hook: {hook}",
-                f"[yellow]⚠ not installed[/yellow]  →  "
-                f"cp .github/hooks/{hook} .git/hooks/{hook} && chmod +x .git/hooks/{hook}"
-            )
+    try:
+        store = DomainStore(db_path=db)
+        s     = store.stats()
+        table.add_row("Path",   str(db))
+        table.add_row("Total",  f"{s['total']:,} domains")
+        table.add_row("Scored", f"{s['scored']:,} domains")
+    except Exception as exc:
+        table.add_row("Database", f"[red]✗ error: {exc}[/red]")
 
     console.print(table)
     console.print()
