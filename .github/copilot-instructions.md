@@ -69,7 +69,10 @@ ddig/
 ├── tests/
 │   └── unit/
 │       ├── cli/
+│       │   ├── test_doctor_command.py    # ddig doctor CLI tests
 │       │   ├── test_export_command.py    # ddig export CLI tests
+│       │   ├── test_fetch_command.py     # ddig fetch CLI tests
+│       │   ├── test_score_command.py     # ddig score CLI tests
 │       │   ├── test_search_command.py    # ddig search CLI tests
 │       │   ├── test_stats_command.py     # ddig stats CLI tests
 │       │   └── test_watch_commands.py    # ddig watch CLI tests
@@ -230,6 +233,8 @@ CZDS_TOKEN=eyJhbGci...    # JWT, ~1193 chars, expires ~1h — auto-refreshed by 
 - ❌ Don't ignore Pylance type errors — always add `None` guards before comparing `Optional` fields
 - ❌ Don't use bare `float` comparisons against `Optional[float]` — Pylance will flag `>=` on `float | None`
 - ❌ Don't pass `float` where `bool` is expected — `is_pronounceable` must be `bool`, not a raw score
+- ❌ Don't construct `Domain(**defaults)` in test helpers with arbitrary kwargs — always check `domain.py` for the exact field names, types, and defaults before writing a `_domain()` or `_make_domain()` helper. Wrong field names or types cause `TypeError` at runtime, not at import time.
+- ❌ Don't add fields to `_domain()` helpers that don't exist on the `Domain` dataclass — check `ddig/models/domain.py` first
 
 ## Type Checking
 
@@ -246,3 +251,7 @@ CZDS_TOKEN=eyJhbGci...    # JWT, ~1193 chars, expires ~1h — auto-refreshed by 
 - **Primary sources:** `dropcatch`, `expireddomains` — always have drop dates, run daily
 - **Enrichment:** `majestic` — run after dropcatch fetch, never creates new records
 - **Pre-scoring only:** `czds` — intentional use only, do not recommend in daily workflows
+
+## Communication Rules
+
+- **One command per code block** — never batch multiple shell commands into a single block

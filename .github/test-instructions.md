@@ -29,7 +29,10 @@ pytest tests/unit/storage/test_datastore_upsert.py::TestUpsertDeduplication::tes
 tests/
 └── unit/
     ├── cli/
+    │   ├── test_doctor_command.py    # ddig doctor — sections, credentials, deps, DB
     │   ├── test_export_command.py    # ddig export — filters, CSV/JSON, file/stdout
+    │   ├── test_fetch_command.py     # ddig fetch — source routing, options, --score flag
+    │   ├── test_score_command.py     # ddig score — batching, unscored filter, options
     │   ├── test_search_command.py    # ddig search — filters passed to store.search()
     │   ├── test_stats_command.py     # ddig stats — output, store.stats() mock
     │   └── test_watch_commands.py    # ddig watch add/remove/list/clear
@@ -89,6 +92,36 @@ def _domain(**kwargs) -> Domain:
   - `TestUpsertInsert`, `TestUpsertDeduplication`, `TestUpsertNlpPreservation`
   - `TestSearchFilters`, `TestSearchSort`, `TestSearchRankFilters`
 
+### Domain Construction in Tests
+
+**Always check `ddig/models/domain.py` before writing any `_domain()` helper.**
+
+`Domain` is a `@dataclass`. Passing unknown field names or wrong types causes `TypeError` at runtime, not import time.
+
+**The correct pattern — use `dataclasses.replace()` to override fields:**
+
+```python
+from dataclasses import replace
+from ddig.models.domain import Domain
+
+def _domain(**kwargs) -> Domain:
+    base = Domain(
+        fqdn   = "forge.io",
+        name   = "forge",
+        tld    = "io",
+        source = "dropcatch",
+    )
+    return replace(base, **kwargs)
+```
+
+Rules:
+- ✅ Construct a valid base `Domain` with required fields only
+- ✅ Use `replace(base, **kwargs)` to override — Pylance will catch unknown field names at edit time
+- ✅ Only `fqdn`, `name`, `tld` are truly required — `source` defaults to `""`
+- ❌ Never use `Domain(**{...merged dict...})` — unknown kwargs fail silently until runtime
+- ❌ Don't guess field names — read `domain.py`
+- ❌ Don't pass `drop_date=datetime(...)` unless you've confirmed `Domain.drop_date` is `Optional[datetime]`
+
 ## What Each File Covers
 
 ### `test_datastore_upsert.py`
@@ -137,11 +170,32 @@ def _domain(**kwargs) -> Domain:
 - `watch list` — empty, fqdn shown, dashes when not in DB, score shown when in DB, count
 - `watch clear` — `--yes` flag, prompt without flag, abort on `n`, count shown
 
-## Adding New Tests
+### `test_fetch_command.py`
+- Source routing — correct source class instantiated per `--source` value
+- Unknown source exits non-zero
+- Per-source options: feed, pages, tld, headless, tlds, max_tlds, limit, min_rank, max_rank
+- `--score` flag triggers `DomainScorer.score_many()` after fetch
+- `--score` not called on empty fetch result
+- `store.upsert_many()` called with fetched domains
+- `--db` passed to `DomainStore`
+- Output shows source name and domain count
 
-1. Put unit tests in `tests/unit/<module>/`
-2. Use `tmp_path` for any real DB — never write to `~/.ddig/domains.db` in tests
-3. Mock `DomainStore` in CLI tests — don't test storage behaviour through the CLI
-4. Name test classes after the feature: `TestWatchAdd`, not `TestDomainStore`
-5. Name test methods after the behaviour: `test_duplicate_is_noop`, not `test_watch_add_2`
-6. Follow the `_domain()` helper pattern — don't construct `Domain` inline in every test
+### `test_score_command.py`
+- Already-scored domains filtered out before passing to scorer
+- `score_many()` called with unscored domains only
+- `upsert_many()` called with scored results
+- Nothing scored / nothing to do message when all already scored
+- `--batch-size` option respected — large sets split into correct number of calls
+- `--language` passed to `DomainScorer`
+- `--db` passed to `DomainStore`
+- `--verbose` accepted
+
+### `test_doctor_command.py`
+- Exit code zero always
+- All sections shown: Python, dotenv, Credentials, Dependencies, Database
+- All credential keys shown: `EXPIREDDOMAINS_USER`, `EXPIREDDOMAINS_SESSION`, `CZDS_USER`, `CZDS_TOKEN`
+- Empty credential shows "not set"
+- Present credential shows `✓`
+- All dependencies shown: playwright, sqlalchemy, rich, requests
+- Installed dependency shows `✓`
+- DB path shown, handles missing DB gracefully
