@@ -27,7 +27,6 @@ fi
 SLUG="${BRANCH#*/}"
 DESCRIPTION=$(echo "$SLUG" | tr '-' ' ')
 
-# Build title
 TITLE="[$TYPE] $DESCRIPTION"
 
 # Consume stdin — required or git hangs waiting for hook to finish
@@ -63,26 +62,30 @@ $CHANGED_FILES
 - [ ] \`docs/\` updated if behaviour changed
 - [ ] \`copilot-instructions.md\` updated if architecture changed"
 
-echo "🔀 Creating PR: $TITLE"
+# Launch PR creation in background AFTER push completes
+# The subshell waits for the parent (push) to finish before running
+(
+  sleep 5  # give GitHub time to register the branch after push completes
+  echo "🔀 Creating PR: $TITLE"
+  for i in {1..5}; do
+    RESULT=$(gh pr create \
+      --title "$TITLE" \
+      --body "$BODY" \
+      --head "$BRANCH" \
+      --base main \
+      --draft 2>&1)
 
-# Retry up to 5 times — GitHub needs a moment to register the new branch
-for i in {1..5}; do
-  RESULT=$(gh pr create \
-    --title "$TITLE" \
-    --body "$BODY" \
-    --head "$BRANCH" \
-    --base main \
-    --draft 2>&1)
+    if echo "$RESULT" | grep -q "https://github.com"; then
+      echo "✅ Draft PR created: $RESULT"
+      exit 0
+    fi
 
-  if echo "$RESULT" | grep -q "https://github.com"; then
-    echo "✅ Draft PR created: $RESULT"
-    exit 0
-  fi
+    echo "⏳ Waiting for GitHub to register branch (attempt $i/5)..."
+    sleep 3
+  done
 
-  echo "⏳ Waiting for GitHub to register branch (attempt $i/5)..."
-  sleep 3
-done
+  echo "⚠️  Could not create PR automatically — create it manually:"
+  echo "   https://github.com/jmgibson1976/ddig/pull/new/$BRANCH"
+) &
 
-echo "⚠️  Could not create PR automatically — create it manually:"
-echo "   https://github.com/jmgibson1976/ddig/pull/new/$BRANCH"
 exit 0
