@@ -2,8 +2,6 @@
 # Auto-creates a GitHub PR on push if one doesn't exist yet.
 # Install: cp .github/hooks/pre-push .git/hooks/pre-push && chmod +x .git/hooks/pre-push
 
-set -e
-
 BRANCH=$(git symbolic-ref --short HEAD)
 
 # Never auto-PR from main
@@ -14,13 +12,6 @@ fi
 # Check gh is available
 if ! command -v gh &>/dev/null; then
   echo "ℹ️  gh CLI not found — skipping auto PR creation"
-  exit 0
-fi
-
-# Check if PR already exists for this branch
-EXISTING=$(gh pr list --head "$BRANCH" --json number --jq '.[0].number' 2>/dev/null)
-if [[ -n "$EXISTING" ]]; then
-  echo "ℹ️  PR #$EXISTING already exists for branch '$BRANCH'"
   exit 0
 fi
 
@@ -39,7 +30,16 @@ DESCRIPTION=$(echo "$SLUG" | tr '-' ' ')
 # Build title
 TITLE="[$TYPE] $DESCRIPTION"
 
-# Build body from staged diff summary
+# Consume stdin — required or git hangs waiting for hook to finish
+cat > /dev/null
+
+# Check if PR already exists for this branch
+EXISTING=$(gh pr list --head "$BRANCH" --json number --jq '.[0].number' 2>/dev/null)
+if [[ -n "$EXISTING" ]]; then
+  echo "ℹ️  PR #$EXISTING already exists for branch '$BRANCH'"
+  exit 0
+fi
+
 CHANGED_FILES=$(git diff --name-only origin/main..."$BRANCH" 2>/dev/null | sed 's/^/- /' || echo "- (no diff against main)")
 
 BODY="## Type
@@ -64,9 +64,25 @@ $CHANGED_FILES
 - [ ] \`copilot-instructions.md\` updated if architecture changed"
 
 echo "🔀 Creating PR: $TITLE"
-gh pr create \
-  --title "$TITLE" \
-  --body "$BODY" \
-  --draft
 
-echo "✅ Draft PR created for branch '$BRANCH'"
+# Retry up to 5 times — GitHub needs a moment to register the new branch
+for i in {1..5}; do
+  RESULT=$(gh pr create \
+    --title "$TITLE" \
+    --body "$BODY" \
+    --head "$BRANCH" \
+    --base main \
+    --draft 2>&1)
+
+  if echo "$RESULT" | grep -q "https://github.com"; then
+    echo "✅ Draft PR created: $RESULT"
+    exit 0
+  fi
+
+  echo "⏳ Waiting for GitHub to register branch (attempt $i/5)..."
+  sleep 3
+done
+
+echo "⚠️  Could not create PR automatically — create it manually:"
+echo "   https://github.com/jmgibson1976/ddig/pull/new/$BRANCH"
+exit 0
