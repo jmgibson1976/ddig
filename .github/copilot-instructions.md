@@ -260,11 +260,20 @@ CZDS_TOKEN=eyJhbGci...    # JWT, ~1193 chars, expires ~1h — auto-refreshed by 
 
 - Branch naming: `<type>/<short-description>` e.g. `feat/namejet-source`, `fix/czds-auth`, `hotfix/upsert-crash`
 - Supported types: `feat`, `fix`, `hotfix`, `refactor`, `test`, `docs`, `chore`
-- On `git push`, the pre-push hook auto-creates a **draft PR** via `gh` CLI
-- On `git commit`, the post-commit hook **auto-pushes to remote** immediately after commit
+- On `git commit`, the `prepare-commit-msg` hook **auto-generates the commit message** from the staged diff via GitHub Models API (`gpt-4o-mini`)
+- On `git commit`, the `post-commit` hook **auto-pushes to remote** immediately after commit
+- On `git push`, the `pre-push` hook **auto-creates a draft PR** via `gh` CLI
 - Hook sources live in `.github/hooks/` — install all three after cloning:
   ```bash
   cp .github/hooks/pre-push .git/hooks/pre-push && chmod +x .git/hooks/pre-push
   cp .github/hooks/prepare-commit-msg .git/hooks/prepare-commit-msg && chmod +x .git/hooks/prepare-commit-msg
   cp .github/hooks/post-commit .git/hooks/post-commit && chmod +x .git/hooks/post-commit
   ```
+- All hooks require `gh` CLI authenticated: `gh auth login`
+- **`prepare-commit-msg` is skipped** on `--amend`, `merge`, and `squash` commits — write those manually
+- **`prepare-commit-msg` requires staged changes** — hook exits silently with no diff, leaving editor blank
+- Commit type is derived from branch prefix if present (e.g. `feat/` → `feat:`), otherwise **inferred from the diff by the LLM**
+- Commit messages are **editable** — the editor opens pre-populated, save to confirm or edit before saving
+- PR title format: `[type] short description` derived from branch name
+- PRs are created as **drafts** — mark ready for review manually
+- **PR creation runs in a background subshell** after push — the PR URL will not appear in the terminal during the push, it appears a few seconds after
