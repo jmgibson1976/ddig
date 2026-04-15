@@ -18,8 +18,8 @@ ddig fetch --source dropcatch --score
 # Search for short, real-word .com domains
 ddig search --tld com --max-length 6 --real-words --min-score 0.7
 
-# Export results
-ddig export results.csv --tld com --min-score 0.7
+# Export results to CSV
+ddig export --tld com --min-score 0.7 --output results.csv
 ```
 
 ## Installation
@@ -52,6 +52,8 @@ cp .env.example .env
 | `ddig ed-debug` | Inspect ExpiredDomains login form fields |
 | `ddig czds-auth` | Re-authenticate with ICANN CZDS |
 | `ddig czds-tlds` | List all approved CZDS TLDs |
+
+---
 
 ### `ddig doctor` — Environment Check
 
@@ -113,7 +115,7 @@ ddig fetch --source expireddomains --feed deleted --pages 2 --no-headless --verb
 ddig fetch --source czds --tlds app,dev,io --score
 ddig fetch --source czds --tlds app --verbose
 
-# Majestic Million — no credentials, backlink enrichment
+# Majestic Million — no credentials, backlink enrichment only
 ddig fetch --source majestic                          # all 1M domains
 ddig fetch --source majestic --limit 10000            # top 10K only
 ddig fetch --source majestic --max-rank 10000         # top 10K by rank
@@ -130,10 +132,10 @@ ddig search [OPTIONS]
 Options:
   -n, --name TEXT         Partial domain name match (case-insensitive)
   -t, --tld TEXT          Filter by TLD e.g. com, io, app
+      --source TEXT       Filter by source: dropcatch | expireddomains | czds
       --min-score FLOAT   Minimum NLP score (0.0–1.0)
       --max-length INT    Maximum name length (not including TLD)
       --min-backlinks INT Minimum backlink count (RefSubNets from Majestic)
-      --min-rank INT      Minimum Majestic GlobalRank (lower = more linked)
       --max-rank INT      Maximum Majestic GlobalRank e.g. 10000 = top 10K only
       --within INT        Dropping within N days
       --real-words        Only return real English dictionary words
@@ -243,36 +245,68 @@ Example output:
 ### `ddig export` — Export to CSV or JSON
 
 ```bash
-ddig export OUTPUT [OPTIONS]
+ddig export [OUTPUT] [OPTIONS]
 
 Arguments:
-  OUTPUT      Output file path (e.g. results.csv or results.json)
+  OUTPUT      Optional output file path. Omit to print to stdout.
 
 Options:
-  -f, --format TEXT     csv or json  [default: csv]
-  -t, --tld TEXT        Filter by TLD
-      --min-score FLOAT Minimum NLP score
-      --max-length INT  Maximum name length
-      --real-words      Real words only
-      --no-hyphens      Exclude hyphens
-      --no-numbers      Exclude numbers
-  -l, --limit INT       Max records to export  [default: 10000]
-      --db PATH         Database path
+  -f, --format TEXT       csv or json  [default: csv]
+  -t, --tld TEXT          Filter by TLD
+      --source TEXT       Filter by source
+      --min-score FLOAT   Minimum NLP score
+      --max-length INT    Maximum name length
+      --min-backlinks INT Minimum backlink count
+      --max-rank INT      Maximum Majestic GlobalRank
+      --within INT        Dropping within N days
+      --real-words        Real words only
+      --no-hyphens        Exclude hyphens
+      --no-numbers        Exclude numbers
+      --sort TEXT         Sort by: composite | score | rank | backlinks | drop
+  -l, --limit INT         Max records to export  [default: 10000]
+      --db PATH           Database path
   -v, --verbose
 ```
 
 **Examples:**
 
 ```bash
-# Export top .com domains to CSV
-ddig export top_com.csv --tld com --min-score 0.7 --real-words
+# Export top .com domains to CSV file
+ddig export --tld com --min-score 0.7 --real-words --output top_com.csv
 
-# Export all scored domains to JSON
-ddig export domains.json --format json --min-score 0.5 --limit 50000
+# Print to stdout (pipe-friendly)
+ddig export --tld io --min-score 0.8 --format csv
+ddig export --format json --min-score 0.5 | jq '.[0]'
+
+# Export all scored domains to JSON file
+ddig export --format json --min-score 0.5 --limit 50000 --output domains.json
 
 # Export short premium candidates
-ddig export premium.csv --max-length 5 --real-words --no-hyphens --no-numbers
+ddig export --max-length 5 --real-words --no-hyphens --no-numbers --output premium.csv
 ```
+
+---
+
+### `ddig watch` — Watchlist
+
+Pin domains for monitoring regardless of drop date or score.
+
+```bash
+# Pin domains
+ddig watch add forge.io cheongbong.com computerthinks.com
+
+# Show watchlist with live scores from DB
+ddig watch list
+
+# Unpin
+ddig watch remove forge.io
+
+# Clear all (prompts for confirmation)
+ddig watch clear
+ddig watch clear --yes
+```
+
+See [docs/watchlist.md](docs/watchlist.md) for full details.
 
 ---
 
@@ -309,12 +343,12 @@ ddig czds-auth --verbose
 
 ## Sources
 
-| Source           | Auth Required              | Volume                        | Run Regularly? | Docs                             |
-|------------------|----------------------------|-------------------------------|----------------|----------------------------------|
-| `dropcatch`      | None                       | ~500K/day                     | ✅ Daily        | [docs/sources/dropcatch.md]      |
-| `expireddomains` | Free account + two cookies | ~25/page (free)               | ✅ Daily        | [docs/sources/expireddomains.md] |
-| `majestic`       | None                       | Enrichment only               | ✅ After fetch  | [docs/sources/majestic.md]       |
-| `czds`           | ICANN account + approval   | Millions/TLD — use carefully  | ⚠️ Intentional only | [docs/sources/czds.md]      |
+| Source           | Auth Required              | Volume                        | Run Regularly?      | Docs                             |
+|------------------|----------------------------|-------------------------------|---------------------|----------------------------------|
+| `dropcatch`      | None                       | ~500K/day                     | ✅ Daily             | [docs/sources/dropcatch.md]      |
+| `expireddomains` | Free account + two cookies | ~25/page (free)               | ✅ Daily             | [docs/sources/expireddomains.md] |
+| `majestic`       | None                       | Enrichment only               | ✅ After fetch       | [docs/sources/majestic.md]       |
+| `czds`           | ICANN account + approval   | Millions/TLD — use carefully  | ⚠️ Intentional only | [docs/sources/czds.md]           |
 
 > **Note:** CZDS provides full TLD zone files (all registered domains), not dropping domains.
 > It does not add expiry or drop date signal. Use it only to pre-score a specific TLD you are
@@ -372,7 +406,9 @@ ddig/
 │   └── nlp/
 │       └── scorer.py        # NLP scoring engine
 ├── docs/
-│   ├── database.md
+│   ├── database.md          # Schema, SQL queries, maintenance
+│   ├── export.md            # Export command reference
+│   ├── watchlist.md         # Watchlist command reference
 │   └── sources/
 │       ├── dropcatch.md
 │       ├── expireddomains.md

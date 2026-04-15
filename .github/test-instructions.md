@@ -1,164 +1,147 @@
-# DDig — Test Writing Instructions
+# DDig — Test Instructions
 
-## Framework & Tools
+## Running Tests
 
-- **pytest** — all tests use pytest, never unittest directly
-- **monkeypatch** — for env vars (never `os.environ` direct mutation)
-- **MagicMock / patch** — for external dependencies (HTTP, Playwright, filesystem)
-- **pytest.raises** — for exception assertions
-- No third-party mocking libraries beyond `unittest.mock`
+```bash
+# All tests
+pytest
 
-## File Layout
+# Unit tests only (fast, no network, no Playwright)
+pytest tests/unit/
+
+# Specific module
+pytest tests/unit/storage/ -v
+pytest tests/unit/cli/ -v
+pytest tests/unit/sources/ -v
+pytest tests/unit/nlp/ -v
+
+# Single file
+pytest tests/unit/storage/test_datastore_upsert.py -v
+pytest tests/unit/cli/test_search_command.py -v
+
+# Single test
+pytest tests/unit/storage/test_datastore_upsert.py::TestUpsertDeduplication::test_duplicate_fqdn_does_not_create_new_row -v
+```
+
+## Test Structure
 
 ```
 tests/
-├── unit/
-│   ├── sources/
-│   │   ├── test_dropcatch.py
-│   │   ├── test_expireddomains.py
-│   │   └── test_czds.py
-│   ├── storage/
-│   │   └── test_datastore.py
-│   └── nlp/
-│       └── test_scorer.py
-└── integration/
-    └── test_fetch_pipeline.py
+└── unit/
+    ├── cli/
+    │   ├── test_export_command.py    # ddig export — filters, CSV/JSON, file/stdout
+    │   ├── test_search_command.py    # ddig search — filters passed to store.search()
+    │   ├── test_stats_command.py     # ddig stats — output, store.stats() mock
+    │   └── test_watch_commands.py    # ddig watch add/remove/list/clear
+    ├── nlp/
+    │   └── test_scorer.py            # DomainScorer — scoring, tags, edge cases
+    ├── sources/
+    │   ├── test_czds.py              # CZDS source — parsing, auth
+    │   ├── test_dropcatch.py         # DropCatch source — XML parsing
+    │   ├── test_expireddomains.py    # ExpiredDomains — login, scraping
+    │   └── test_majestic.py         # Majestic — CSV parsing, enrichment-only
+    └── storage/
+        ├── test_datastore_search.py  # DomainStore.search() — all filter combinations
+        ├── test_datastore_upsert.py  # DomainStore.upsert_many() — write path
+        └── test_datastore_watchlist.py # DomainStore watch_add/remove/list/clear
 ```
 
-## Test Class Structure
+## Fixtures & Helpers
 
-Group tests by method/concern using classes. Every file follows this order:
-
+### `store` fixture (storage tests)
+All storage tests use a `tmp_path`-scoped `DomainStore`:
 ```python
-# ------------------------------------------------------------------ #
-# Init                                                                #
-# ------------------------------------------------------------------ #
-class TestInit: ...
-
-# ------------------------------------------------------------------ #
-# <Method or concern>                                                 #
-# ------------------------------------------------------------------ #
-class TestMethodName: ...
-
-# ------------------------------------------------------------------ #
-# Parsing helpers                                                     #
-# ------------------------------------------------------------------ #
-class TestParseHelpers: ...
-```
-
-## Naming Conventions
-
-| What | Convention | Example |
-|------|-----------|---------|
-| Test files | `test_<module>.py` | `test_czds.py` |
-| Test classes | `Test<Subject>` | `TestInit`, `TestAuthenticate` |
-| Test methods | `test_<what>_<condition>` | `test_fetch_returns_domains`, `test_invalid_tld_raises` |
-
-## What to Test
-
-### Always test:
-- `__init__` reads from env vars correctly
-- `__init__` keyword args override env vars
-- Invalid arguments raise `ValueError` with a helpful message
-- Missing required credentials raise `RuntimeError`
-- `fetch()` is a generator function (`inspect.isgeneratorfunction`)
-- Parsing helpers (`_parse_date`, `_parse_int`, etc.) — all edge cases
-- URL / path building methods return correct strings
-
-### Never test:
-- Private Playwright browser interactions directly (mock the page object)
-- Live network calls (all HTTP must be mocked)
-- Filesystem side effects in unit tests (use `tmp_path` fixture if needed)
-
-## Mocking Patterns
-
-### Mock env vars
-```python
-def test_reads_from_env(self, monkeypatch):
-    monkeypatch.setenv("CZDS_USER", "test@example.com")
-    src = CZDSSource()
-    assert src.username == "test@example.com"
-```
-
-### Mock HTTP responses
-```python
-from unittest.mock import MagicMock, patch
-
-def test_download_returns_domains(self):
-    mock_resp = MagicMock()
-    mock_resp.status_code = 200
-    mock_resp.text = '["https://czds-download-api.icann.org/czds/downloads/app.zone"]'
-    mock_resp.json.return_value = ["https://czds-download-api.icann.org/czds/downloads/app.zone"]
-    with patch("ddig.sources.czds.requests.Session.get", return_value=mock_resp):
-        ...
-```
-
-### Mock Playwright
-```python
-mock_page = MagicMock()
-mock_page.content.return_value = "<html>results</html>"
-mock_page.query_selector_all.return_value = []
-```
-
-### Mock missing optional dependency
-```python
-with patch.dict("sys.modules", {"playwright": None, "playwright.sync_api": None}):
-    with pytest.raises(RuntimeError, match="Playwright is required"):
-        src._check_playwright()
-```
-
-### Temporary files
-```python
-def test_cache_path(self, tmp_path):
-    src = CZDSSource(cache_dir=tmp_path)
-    path = src._cache_path("app")
-    assert path.parent == tmp_path
-    assert "app" in path.name
-```
-
-## Fixtures
-
-Define shared fixtures in `tests/conftest.py`:
-
-```python
-# tests/conftest.py
-import pytest
-
 @pytest.fixture
-def czds_source(tmp_path):
-    return CZDSSource(
-        username="test@example.com",
-        password="testpass",
-        cache_dir=tmp_path,
-    )
+def store(tmp_path):
+    return DomainStore(db_path=tmp_path / "test.db")
+```
 
+### `mock_store` fixture (CLI tests)
+All CLI tests mock `DomainStore` via `patch("ddig.__main__.DomainStore")`:
+```python
 @pytest.fixture
-def dropcatch_source():
-    return DropCatchSource(feed="dropping-today")
+def mock_store():
+    with patch("ddig.__main__.DomainStore") as MockStore:
+        store = MagicMock()
+        MockStore.return_value = store
+        yield store
 ```
 
-## Coverage Targets
-
-| Module | Target |
-|--------|--------|
-| `sources/dropcatch.py` | 80% |
-| `sources/expireddomains.py` | 80% |
-| `sources/czds.py` | 75% |
-| `sources/majestic.py` | 90% |
-| `storage/datastore.py` | 85% |
-| `nlp/scorer.py` | 85% |
-
-Run coverage:
-```bash
-pytest --cov=ddig --cov-report=term-missing tests/unit/
+### `_domain()` / `_make_domain()` helpers
+Each test file defines a local `_domain(**kwargs)` or `_make_domain(**kwargs)`
+helper with sensible defaults. Override only what the test needs:
+```python
+def _domain(**kwargs) -> Domain:
+    defaults = dict(fqdn="forge.io", name="forge", tld="io", source="dropcatch")
+    defaults.update(kwargs)
+    return Domain(**defaults)
 ```
 
-## Anti-Patterns to Avoid
+## Conventions
 
-- ❌ Don't use `os.environ["KEY"] = "value"` — always use `monkeypatch.setenv`
-- ❌ Don't make real HTTP requests in unit tests
-- ❌ Don't test implementation details — test behaviour and outputs
-- ❌ Don't assert on Rich console output — test return values and side effects
-- ❌ Don't use `assert mock.called` — use `assert mock.call_count == 1` or `mock.assert_called_once_with(...)`
-- ❌ Don't write one giant test method — one assertion per test where possible
-- ❌ Don't use `datetime.utcnow()` — use `datetime.now(timezone.utc)` (utcnow is deprecated in Python 3.12+)
+- **Unit tests are fast** — no network, no Playwright, no real DB (use `tmp_path`)
+- **CLI tests mock the store** — test command wiring, not storage logic
+- **Storage tests use a real in-memory DB** — test actual SQL behaviour
+- **Source tests mock HTTP/Playwright** — test parsing logic, not live sites
+- **No `pytest.mark.slow`** — all unit tests must run in < 2s total
+- **Test class names** match the method/feature being tested:
+  - `TestWatchAdd`, `TestWatchRemove`, `TestWatchList`, `TestWatchClear`
+  - `TestUpsertInsert`, `TestUpsertDeduplication`, `TestUpsertNlpPreservation`
+  - `TestSearchFilters`, `TestSearchSort`, `TestSearchRankFilters`
+
+## What Each File Covers
+
+### `test_datastore_upsert.py`
+- Basic insert (single, multiple, empty list)
+- Deduplication by `fqdn`
+- `source` accumulation across multiple upserts
+- NLP field preservation (`nlp_score`, `is_real_word`, `is_pronounceable`, `word_frequency`)
+- Backlink conflict resolution (keeps highest)
+- Rank conflict resolution (keeps lowest / best)
+- Drop date update behaviour
+- `get_all_fqdns()` return type and contents
+
+### `test_datastore_search.py`
+- All filter parameters (`tld`, `source`, `min_score`, `max_length`, `min_backlinks`,
+  `min_rank`, `max_rank`, `within_days`, `real_words`, `no_hyphens`, `no_numbers`)
+- All sort options (`composite`, `score`, `rank`, `backlinks`, `drop`)
+- Limit
+- Composite score auto-recompute when backlinks/rank arrive
+
+### `test_datastore_watchlist.py`
+- `watch_add` — single, multiple, lowercase normalisation, whitespace strip, duplicate no-op
+- `watch_remove` — existing, not-found, multiple, leaves others intact
+- `watch_list` — empty, entry fields, domain join, ordering
+- `watch_clear` — count returned, empties list, clear then re-add
+
+### `test_export_command.py`
+- CSV/JSON to stdout
+- CSV/JSON to file
+- Correct headers and field values
+- All filters passed to `store.search()`
+
+### `test_search_command.py`
+- Output formatting (fqdn shown, count shown, empty message)
+- All filters passed to `store.search()`
+- Exit codes
+
+### `test_stats_command.py`
+- Exit code zero
+- Total, scored, by_source, by_tld shown in output
+- `store.stats()` called once
+- Empty DB shows zero
+
+### `test_watch_commands.py`
+- `watch add` — single, multiple, already-watching message, partial add
+- `watch remove` — existing, not-found, multiple
+- `watch list` — empty, fqdn shown, dashes when not in DB, score shown when in DB, count
+- `watch clear` — `--yes` flag, prompt without flag, abort on `n`, count shown
+
+## Adding New Tests
+
+1. Put unit tests in `tests/unit/<module>/`
+2. Use `tmp_path` for any real DB — never write to `~/.ddig/domains.db` in tests
+3. Mock `DomainStore` in CLI tests — don't test storage behaviour through the CLI
+4. Name test classes after the feature: `TestWatchAdd`, not `TestDomainStore`
+5. Name test methods after the behaviour: `test_duplicate_is_noop`, not `test_watch_add_2`
+6. Follow the `_domain()` helper pattern — don't construct `Domain` inline in every test

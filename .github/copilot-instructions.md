@@ -62,12 +62,37 @@ ddig/
 │   │   ├── expireddomains.py # Playwright scraper — member.expireddomains.net
 │   │   ├── czds.py          # ICANN zone file downloader — Okta JWT auth via Playwright
 │   │   └── majestic.py      # Majestic Million CSV — no auth, backlink enrichment
+│   ├── storage/
+│   │   └── datastore.py     # SQLite store (SQLAlchemy)
+│   └── nlp/
+│       └── scorer.py        # NLP scoring engine
+├── tests/
+│   └── unit/
+│       ├── cli/
+│       │   ├── test_export_command.py    # ddig export CLI tests
+│       │   ├── test_search_command.py    # ddig search CLI tests
+│       │   ├── test_stats_command.py     # ddig stats CLI tests
+│       │   └── test_watch_commands.py    # ddig watch CLI tests
+│       ├── nlp/
+│       │   └── test_scorer.py            # NLP scorer tests
+│       ├── sources/
+│       │   ├── test_czds.py
+│       │   ├── test_dropcatch.py
+│       │   ├── test_expireddomains.py
+│       │   └── test_majestic.py
+│       └── storage/
+│           ├── test_datastore_search.py  # DomainStore.search() filter tests
+│           ├── test_datastore_upsert.py  # DomainStore.upsert_many() tests
+│           └── test_datastore_watchlist.py # DomainStore watchlist method tests
 ├── docs/
 │   ├── database.md          # Schema, SQL queries, maintenance
+│   ├── export.md            # Export command reference
+│   ├── watchlist.md         # Watchlist command reference
 │   └── sources/
 │       ├── dropcatch.md
 │       ├── expireddomains.md
-│       └── czds.md
+│       ├── czds.md
+│       └── majestic.md
 └── README.md                # Full CLI reference + quickstart
 ```
 

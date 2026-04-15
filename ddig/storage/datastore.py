@@ -222,7 +222,7 @@ class DomainStore:
         """Insert or update a single domain."""
         self.upsert_many([domain])
 
-    def upsert_many(self, domains: Iterable[Domain]) -> int:
+    def upsert_many(self, domains: list[Domain]) -> None:
         """
         Bulk upsert using SQLite INSERT OR REPLACE.
         On conflict (same fqdn):
@@ -233,7 +233,7 @@ class DomainStore:
           - composite_score: recomputed whenever nlp_score, backlinks, or rank change
         """
         if not domains:
-            return 0
+            return
 
         records = [_domain_to_record(d) for d in domains]
         total   = len(records)
@@ -360,11 +360,11 @@ class DomainStore:
                     index_elements=["fqdn"],
                     set_=on_conflict_dict,
                 )
+
                 conn.execute(stmt)
                 log.debug("Upserted batch %d–%d", i, i + len(batch))
 
         log.debug("Upserted %d domains total", total)
-        return total
 
     # ------------------------------------------------------------------ #
     # Read / Search                                                        #
@@ -408,6 +408,7 @@ class DomainStore:
             if max_rank is not None:
                 q = q.where(DomainRecord.rank <= max_rank)
             if within_days is not None:
+
                 now    = datetime.now(timezone.utc)
                 cutoff = now + timedelta(days=within_days)
                 q = q.where(DomainRecord.drop_date.isnot(None))

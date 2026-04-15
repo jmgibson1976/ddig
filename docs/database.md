@@ -1,133 +1,153 @@
-# DDig Database
+# Database
 
-DDig uses a **SQLite** database stored at `~/.ddig/domains.db` by default.
-
-## Location
-
-```bash
-~/.ddig/domains.db          # default
-/path/to/custom.db          # override with --db flag
-```
+DDig uses a single SQLite database at `~/.ddig/domains.db`.
 
 ## Schema
 
-| Column            | Type    | Description                                          |
-|-------------------|---------|------------------------------------------------------|
-| `id`              | INTEGER | Primary key                                          |
-| `fqdn`            | TEXT    | Unique — `example.com`                               |
-| `name`            | TEXT    | Name without TLD — `example`                         |
-| `tld`             | TEXT    | TLD without dot — `com`                              |
-| `expiry_date`     | TEXT    | ISO 8601 UTC                                         |
-| `drop_date`       | TEXT    | ISO 8601 UTC — when domain drops                     |
-| `source`          | TEXT    | Comma-separated — `dropcatch,czds`                   |
-| `registrar`       | TEXT    | Registrar name                                       |
-| `backlinks`       | INTEGER | RefSubNets from Majestic — highest value kept        |
-| `rank`            | INTEGER | Majestic GlobalRank — lowest (best) value kept       |
-| `nlp_score`       | REAL    | NLP quality score 0.0–1.0 — never overwritten        |
-| `composite_score` | REAL    | 50% nlp + 30% backlinks + 20% rank — 0.0–1.0        |
-| `is_real_word`    | INTEGER | 1 if dictionary word                                 |
-| `word_frequency`  | REAL    | Corpus frequency score                               |
-| `is_pronounceable`| INTEGER | 1 if phonetically pronounceable                      |
-| `tags`            | TEXT    | JSON array — `["english-word", "short"]`             |
-| `fetched_at`      | TEXT    | ISO 8601 UTC — when row was last fetched             |
+### `domains` table
+
+The primary table. One row per FQDN.
+
+| Column            | Type    | Description |
+|-------------------|---------|-------------|
+| `fqdn`            | TEXT PK | Full domain e.g. `forge.io` |
+| `name`            | TEXT    | SLD only e.g. `forge` |
+| `tld`             | TEXT    | TLD only e.g. `io` |
+| `source`          | TEXT    | Comma-separated sources e.g. `dropcatch,majestic` |
+| `drop_date`       | TEXT    | ISO 8601 timestamp — when domain drops |
+| `expiry_date`     | TEXT    | ISO 8601 timestamp — original expiry |
+| `registrar`       | TEXT    | Last known registrar |
+| `fetched_at`      | TEXT    | ISO 8601 timestamp — when last fetched |
+| `nlp_score`       | REAL    | NLP quality score 0.0–1.0 — never overwritten once set |
+| `composite_score` | REAL    | 50% NLP + 30% backlinks + 20% rank — recomputed on enrichment |
+| `is_real_word`    | INTEGER | 1 if name is a dictionary word |
+| `word_frequency`  | REAL    | Corpus frequency score |
+| `is_pronounceable`| INTEGER | 1 if phonetically pronounceable |
+| `tags`            | TEXT    | Pipe-separated tags e.g. `short\|real_word` |
+| `backlinks`       | INTEGER | RefSubNets from Majestic — keeps highest value seen |
+| `rank`            | INTEGER | GlobalRank from Majestic — keeps lowest (best) value seen |
+
+### `watchlist` table
+
+Pinned domains. Independent of the `domains` table.
+
+| Column     | Type    | Description |
+|------------|---------|-------------|
+| `fqdn`     | TEXT PK | Full domain e.g. `forge.io` |
+| `added_at` | TEXT    | ISO 8601 timestamp — when pinned |
 
 ## Upsert Behaviour
 
-- `fqdn` is the **unique key** — duplicate fetches update rather than insert
-- `source` **accumulates** — if a domain appears in both DropCatch and CZDS,
-  source becomes `"dropcatch,czds"`
-- `nlp_score` and other NLP fields are **preserved** if already scored
-  (a re-fetch won't overwrite existing scores)
-- `backlinks` keeps the **highest value** seen across all sources
-- `composite_score` is **automatically recomputed** when `backlinks` or `rank` improve — no need to re-run `ddig score`
-- **Majestic never creates new records** — it only updates `backlinks` and `rank` on existing dropping/expiring domains
+`upsert_many()` is the **only write path**. On conflict (same `fqdn`):
 
-## Direct SQLite Queries
+| Field | Behaviour |
+|-------|-----------|
+| `source` | Accumulates — `dropcatch` + `czds` → `dropcatch,czds` |
+| `drop_date` | Always updated |
+| `expiry_date` | Always updated |
+| `registrar` | Always updated |
+| `fetched_at` | Always updated |
+| `backlinks` | Keeps highest value seen |
+| `rank` | Keeps lowest (best) value seen |
+| `nlp_score` | Never overwritten once set |
+| `is_real_word` | Never overwritten once set |
+| `is_pronounceable` | Never overwritten once set |
+| `word_frequency` | Never overwritten once set |
+| `tags` | Never overwritten once set |
+| `composite_score` | Recomputed whenever nlp_score, backlinks, or rank changes |
+
+## Composite Score
+
+```
+composite_score = 0.5 × nlp_score
+                + 0.3 × log(backlinks + 1) / log(max_backlinks + 1)
+                + 0.2 × (1 - log(rank + 1) / log(max_rank + 1))
+```
+
+- Requires `nlp_score` to be non-null — domains without NLP score get `composite_score = None`
+- `backlinks` and `rank` components are 0 if null
+- Default sort for `ddig search` and `ddig export`
+
+## Direct SQL Queries
 
 ```bash
 # Open the database
 sqlite3 ~/.ddig/domains.db
+```
 
-# Count all domains
+```sql
+-- Count all domains
 SELECT COUNT(*) FROM domains;
 
-# Count by source
+-- Count by source
 SELECT source, COUNT(*) FROM domains GROUP BY source ORDER BY COUNT(*) DESC;
 
-# Count by TLD
+-- Count by TLD
 SELECT tld, COUNT(*) FROM domains GROUP BY tld ORDER BY COUNT(*) DESC LIMIT 20;
 
-# Top scored domains
-SELECT fqdn, nlp_score, tld, drop_date
+-- Top scored domains
+SELECT fqdn, nlp_score, composite_score, backlinks, rank, drop_date
 FROM domains
 WHERE nlp_score IS NOT NULL
-ORDER BY nlp_score DESC
+ORDER BY composite_score DESC
 LIMIT 20;
 
-# Short real-word .com domains dropping soon
+-- Real words dropping this week
 SELECT fqdn, nlp_score, drop_date
 FROM domains
-WHERE tld = 'com'
-  AND length <= 6
-  AND is_real_word = 1
-  AND nlp_score > 0.7
-ORDER BY drop_date ASC, nlp_score DESC;
+WHERE is_real_word = 1
+  AND drop_date >= datetime('now')
+  AND drop_date <= datetime('now', '+7 days')
+ORDER BY nlp_score DESC;
 
-# Unscored domains (need scoring pass)
+-- Domains with backlink data
+SELECT fqdn, backlinks, rank, nlp_score
+FROM domains
+WHERE backlinks IS NOT NULL
+ORDER BY backlinks DESC
+LIMIT 20;
+
+-- Unscored domains (run ddig score to fix)
 SELECT COUNT(*) FROM domains WHERE nlp_score IS NULL;
 
-# Domains from multiple sources
-SELECT fqdn, source FROM domains WHERE source LIKE '%,%';
-
-# Export to CSV directly from SQLite
-.headers on
-.mode csv
-.output /tmp/top_domains.csv
-SELECT fqdn, tld, nlp_score, drop_date, source
-FROM domains
-WHERE nlp_score > 0.8
-ORDER BY nlp_score DESC;
-.output stdout
+-- Watchlist
+SELECT w.fqdn, w.added_at, d.nlp_score, d.composite_score, d.drop_date
+FROM watchlist w
+LEFT JOIN domains d ON d.fqdn = w.fqdn
+ORDER BY w.added_at DESC;
 ```
 
 ## Maintenance
 
 ```bash
-# Database size
-du -sh ~/.ddig/domains.db
+# Show database file size
+ls -lh ~/.ddig/domains.db
 
-# Vacuum (compact after large deletes)
+# Vacuum (reclaim space after large deletes)
 sqlite3 ~/.ddig/domains.db "VACUUM;"
-
-# Backup
-cp ~/.ddig/domains.db ~/.ddig/domains.db.bak
 
 # Delete all domains from a specific source
 sqlite3 ~/.ddig/domains.db "DELETE FROM domains WHERE source = 'czds';"
 
-# Reset entirely
-rm ~/.ddig/domains.db
-ddig fetch --source dropcatch   # recreates the schema automatically
+# Delete stale domains (drop date in the past)
+sqlite3 ~/.ddig/domains.db \
+  "DELETE FROM domains WHERE drop_date < datetime('now');"
 
-# Remove majestic-only records (registered domains that snuck in before enrichment-only fix)
-sqlite3 ~/.ddig/domains.db "
-DELETE FROM domains
-WHERE source = 'majestic'
-  AND drop_date IS NULL
-  AND expiry_date IS NULL;
-"
+# Reset NLP scores (forces re-score on next ddig score)
+sqlite3 ~/.ddig/domains.db \
+  "UPDATE domains SET nlp_score=NULL, composite_score=NULL,
+   is_real_word=NULL, word_frequency=NULL, is_pronounceable=NULL, tags=NULL;"
+
+# Backup
+cp ~/.ddig/domains.db ~/.ddig/domains.db.bak
 ```
 
-## Source Strategy
+## Database Path
 
-| Source | Purpose | Run regularly? |
-|--------|---------|---------------|
-| `dropcatch` | Primary — dropping domains with drop dates | ✅ Daily |
-| `expireddomains` | Secondary — additional dropping domains | ✅ Daily |
-| `majestic` | Enrichment only — adds backlinks/rank to existing records | ✅ After dropcatch fetch |
-| `czds` | Pre-scoring only — zone files for specific TLDs you monitor | ⚠️ Intentional use only |
+Override with `--db` on any command:
 
-### CZDS Warning
-Running `ddig fetch --source czds` without a specific plan will insert millions of registered
-domains with no drop_date — 71% DB bloat for minimal benefit. DropCatch already provides
-the dropping signal. Only use CZDS if you want to pre-score a TLD before domains surface in DropCatch.
+```bash
+ddig fetch --source dropcatch --db /tmp/test.db
+ddig search --tld com --db /tmp/test.db
+ddig stats --db /tmp/test.db
+```

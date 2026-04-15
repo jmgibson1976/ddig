@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -17,6 +18,17 @@ from ddig.storage.datastore import DomainStore
 @pytest.fixture
 def store(tmp_path: Path) -> DomainStore:
     return DomainStore(db_path=tmp_path / "test.db")
+
+
+def _domain(**kwargs: Any) -> Domain:
+    defaults: dict[str, Any] = dict(
+        fqdn   = "forge.io",
+        name   = "forge",
+        tld    = "io",
+        source = "dropcatch",
+    )
+    defaults.update(kwargs)
+    return Domain(**defaults)
 
 
 @pytest.fixture
@@ -226,9 +238,27 @@ class TestSearchMinBacklinks:
 # ------------------------------------------------------------------ #
 
 class TestSearchRankFilters:
-    def test_max_rank_filters(self, populated_store: DomainStore):
-        results = populated_store.search(max_rank=100, limit=100)
-        assert all(r.rank is not None and r.rank <= 100 for r in results)
+    def test_max_rank_filters(self, store):
+        store.upsert_many([
+            _domain(fqdn="popular.com", name="popular", rank=500),
+            _domain(fqdn="obscure.com", name="obscure", rank=900_000),
+        ])
+        results = store.search(max_rank=10_000)
+        fqdns = [d.fqdn for d in results]
+        assert "popular.com" in fqdns
+        assert "obscure.com" not in fqdns
+
+    def test_min_and_max_rank_combined(self, store):
+        store.upsert_many([
+            _domain(fqdn="popular.com",  name="popular",  rank=500),
+            _domain(fqdn="mid.com",      name="mid",      rank=50_000),
+            _domain(fqdn="obscure.com",  name="obscure",  rank=900_000),
+        ])
+        results = store.search(max_rank=100_000)
+        fqdns = [d.fqdn for d in results]
+        assert "popular.com" in fqdns
+        assert "mid.com"     in fqdns
+        assert "obscure.com" not in fqdns
 
     def test_max_rank_excludes_null(self, populated_store: DomainStore):
         results = populated_store.search(max_rank=100, limit=100)
@@ -238,12 +268,6 @@ class TestSearchRankFilters:
     def test_min_rank_filters(self, populated_store: DomainStore):
         results = populated_store.search(min_rank=1000, limit=100)
         assert all(r.rank is not None and r.rank >= 1000 for r in results)
-
-    def test_min_and_max_rank_combined(self, populated_store: DomainStore):
-        results = populated_store.search(min_rank=100, max_rank=500, limit=100)
-        for r in results:
-            assert r.rank is not None
-            assert 100 <= r.rank <= 500
 
     def test_rank_33_in_top_100(self, populated_store: DomainStore):
         results = populated_store.search(max_rank=100, limit=100)
