@@ -261,12 +261,10 @@ CZDS_TOKEN=eyJhbGci...    # JWT, ~1193 chars, expires ~1h — auto-refreshed by 
 - Branch naming: `<type>/<short-description>` e.g. `feat/namejet-source`, `fix/czds-auth`, `hotfix/upsert-crash`
 - Supported types: `feat`, `fix`, `hotfix`, `refactor`, `test`, `docs`, `chore`
 - On `git push`, the pre-push hook auto-creates a **draft PR** via `gh` CLI
-- On `git commit`, the prepare-commit-msg hook **auto-generates the commit message** via GitHub Models API
-- Hook sources live in `.github/hooks/` — install both after cloning:
+- On `git commit`, the post-commit hook **auto-pushes to remote** immediately after commit
+- Hook sources live in `.github/hooks/` — install all three after cloning:
   ```bash
   cp .github/hooks/pre-push .git/hooks/pre-push && chmod +x .git/hooks/pre-push
   cp .github/hooks/prepare-commit-msg .git/hooks/prepare-commit-msg && chmod +x .git/hooks/prepare-commit-msg
+  cp .github/hooks/post-commit .git/hooks/post-commit && chmod +x .git/hooks/post-commit
   ```
-- Both hooks require `gh` CLI authenticated: `gh auth login`
-- PRs are created as **drafts** — mark ready for review manually
-- PR title format: `[type] short description` derived from branch name

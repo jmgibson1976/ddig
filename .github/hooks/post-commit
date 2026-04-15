@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Auto-pushes to remote after every commit.
+# Install: cp .github/hooks/post-commit .git/hooks/post-commit && chmod +x .git/hooks/post-commit
+
+BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null)
+
+# Get the remote tracking branch
+REMOTE=$(git config --get "branch.$BRANCH.remote" 2>/dev/null)
+
+if [[ -z "$REMOTE" ]]; then
+  # No tracking branch yet — push and set upstream
+  echo "⬆️  Pushing '$BRANCH' and setting upstream..."
+  git push --set-upstream origin "$BRANCH"
+else
+  # Tracking branch exists — just push
+  echo "⬆️  Pushing '$BRANCH' to $REMOTE..."
+  git push
+fi
+
+if [[ $? -eq 0 ]]; then
+  echo "✅ Pushed '$BRANCH' to remote"
+else
+  echo "⚠️  Push failed — run 'git push' manually"
+fi
