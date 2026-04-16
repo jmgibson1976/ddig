@@ -25,11 +25,14 @@ from pathlib import Path
 from typing import Iterator
 
 import requests
+from rich.console import Console
 
 from ddig.models.domain import Domain
 from ddig.sources.base import DomainSource
+from ddig.env import get_env, reload_env
 
-log = logging.getLogger(__name__)
+log     = logging.getLogger(__name__)
+console = Console()
 
 DOWNLOAD_URL = "https://www.name.com/api/expired/get_expired_domains_csv"
 LOGIN_URL    = "https://www.name.com/account/login"
@@ -75,111 +78,125 @@ class NameSource(DomainSource):
 
     def _cached_path(self) -> Path:
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        return DATA_DIR / f"name_{today}.tsv"
+        return DATA_DIR / f"name_{today}.csv"
 
     def _get_cookies(self) -> dict[str, str]:
-        session_name    = os.environ.get("NAME_SESSION_NAME", "PREG_IDT")
-        session_value   = os.environ.get("NAME_SESSION", "")
-        login_time_name = os.environ.get("NAME_LOGIN_TIME_NAME", "acct_login_time")
-        login_time      = os.environ.get("NAME_LOGIN_TIME", "")
+        session_name    = get_env("NAME_SESSION_NAME",    "REG_IDT")
+        session_value   = get_env("NAME_SESSION",         "")
+        login_time_name = get_env("NAME_LOGIN_TIME_NAME", "acct_login_time")
+        login_time      = get_env("NAME_LOGIN_TIME",      "")
         return {
             session_name:    session_value,
             login_time_name: login_time,
         }
 
     def _download(self, cookies: dict[str, str]) -> Path:
-        """Download the TSV with the given cookies.  Re-authenticates via Playwright on failure."""
+        """Download the CSV with the given cookies.  Re-authenticates via Playwright on failure."""
         log.debug("name.com: downloading %s", DOWNLOAD_URL)
-        resp = requests.get(DOWNLOAD_URL, cookies=cookies, allow_redirects=False, timeout=30)
+        session = requests.Session()
+        resp    = session.get(DOWNLOAD_URL, cookies=cookies, allow_redirects=False, timeout=30)
 
         if resp.status_code in (301, 302, 303, 307, 308) or _is_login_redirect(resp):
             log.info("name.com: session expired — launching Playwright to re-authenticate")
             cookies = self._auth_with_playwright()
-            resp    = requests.get(DOWNLOAD_URL, cookies=cookies, allow_redirects=False, timeout=30)
+            resp    = session.get(DOWNLOAD_URL, cookies=cookies, allow_redirects=False, timeout=30)
 
         resp.raise_for_status()
 
         dest = self._cached_path()
         dest.write_bytes(resp.content)
         log.debug("name.com: saved to %s (%d bytes)", dest, len(resp.content))
+
+        if resp.status_code == 200 and len(resp.content) == 0:
+            dest.unlink()
+            raise RuntimeError("name.com: downloaded file is empty — authentication may have failed")
+
         return dest
 
     def _auth_with_playwright(self) -> dict[str, str]:
-        """Headless Playwright login. Pauses for MFA code if prompted."""
+        """Headless Playwright login — handles device verification and MFA."""
         from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 
-        username = os.environ.get("NAME_USER", "")
-        password = os.environ.get("NAME_PASS", "")
+        reload_env()  # force fresh read after any _update_env calls
+        username = get_env("NAME_USER")
+        password = get_env("NAME_PASS")
+        log.debug("name.com: auth as %s (pass len=%d)", username, len(password))
 
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=self.headless)
             ctx     = browser.new_context()
             page    = ctx.new_page()
 
+            # ── Login ────────────────────────────────────────────────
             log.debug("name.com: navigating to %s", LOGIN_URL)
             page.goto(LOGIN_URL, wait_until="domcontentloaded")
-            page.wait_for_selector("input", timeout=10000)
+            page.wait_for_selector("#Login-new-form", timeout=10000)
 
-            # Fill username — try selectors individually
-            for sel in ("input[name='username']", "input[type='email']", "#username", "#email"):
+            page.locator("#Login-new-form #acct_name").fill(username)
+            log.debug("name.com: filled username")
+
+            page.locator("#Login-new-form #password").fill(password)
+            log.debug("name.com: filled password")
+
+            page.locator("#Login-new-form #login-btn").click()
+            log.debug("name.com: clicked login button")
+
+            try:
+                page.wait_for_selector("#Login-new-form", state="detached", timeout=15000)
+                log.debug("name.com: login form gone — proceeding")
+            except PWTimeout:
+                log.warning("name.com: login form still present — check credentials")
+
+            # ── Step 1: Unrecognized device ──────────────────────────
+            try:
+                page.wait_for_selector("button:has-text('Send me the code')", timeout=8000)
                 try:
-                    page.fill(sel, username, timeout=3000)
-                    log.debug("name.com: filled username with selector %s", sel)
-                    break
+                    page.locator("button:has-text('Reject All')").click(timeout=3000)
+                    log.debug("name.com: dismissed cookie banner")
                 except PWTimeout:
-                    continue
+                    pass
+                page.locator("button:has-text('Send me the code')").click()
+                log.debug("name.com: requested email code")
+            except PWTimeout:
+                log.debug("name.com: no unrecognized-device page")
 
-            # Fill password — try selectors individually
-            for sel in ("input[name='password']", "input[type='password']", "#password"):
-                try:
-                    page.fill(sel, password, timeout=3000)
-                    log.debug("name.com: filled password with selector %s", sel)
-                    break
-                except PWTimeout:
-                    continue
+            # ── Step 2: Security code ────────────────────────────────
+            try:
+                page.wait_for_selector("input[name='code']", timeout=20000)
+                console.print("\n[yellow]name.com sent a security code to your email.[/yellow]")
+                code = input("Enter the security code: ").strip()
+                page.locator("input[name='code']").fill(code)
+                page.locator("button:has-text('Verify Code')").click()
+                log.debug("name.com: submitted security code")
+            except PWTimeout:
+                log.debug("name.com: no security code page")
 
-            # Submit
-            for sel in ("button[type='submit']", "input[type='submit']", "button.btn-primary"):
-                try:
-                    page.click(sel, timeout=3000)
-                    break
-                except PWTimeout:
-                    continue
+            # ── Step 3: Remember this device ─────────────────────────
+            try:
+                page.wait_for_selector("text=Remember this device?", timeout=10000)
+                page.locator("label:has-text('No, do not remember')").click()
+                page.locator("button:has-text('Save and continue')").click()
+                log.debug("name.com: chose not to remember device")
+            except PWTimeout:
+                log.debug("name.com: no remember-device page")
 
-            # after submit click:
+            # ── Capture cookies ──────────────────────────────────────
             page.wait_for_load_state("domcontentloaded")
-
-            # MFA — pause for manual input if we see an OTP field
-            for sel in ("input[name='otp']", "input[name='code']", "#otp"):
-                try:
-                    page.wait_for_selector(sel, timeout=3000)
-                    code = input("name.com MFA code: ").strip()
-                    page.fill(sel, code, timeout=5000)
-                    for submit in ("button[type='submit']", "input[type='submit']"):
-                        try:
-                            page.click(submit, timeout=3000)
-                            break
-                        except PWTimeout:
-                            continue
-                    page.wait_for_load_state("networkidle")
-                    break
-                except PWTimeout:
-                    continue
-
-            # Capture cookies
-            raw     = ctx.cookies([BASE_URL])
+            raw     = ctx.cookies()
             cookies = {c["name"]: c["value"] for c in raw}  # type: ignore[index]
+            for name_, value_ in cookies.items():
+                log.debug("name.com captured cookie: %s = %s…", name_, str(value_)[:20])
             browser.close()
 
-        # Persist updated cookies to .env
-        _update_env("NAME_SESSION",    cookies.get(os.environ.get("NAME_SESSION_NAME",    "PREG_IDT"),          ""))
-        _update_env("NAME_LOGIN_TIME", cookies.get(os.environ.get("NAME_LOGIN_TIME_NAME", "acct_login_time"),   ""))
+        _update_env("NAME_SESSION",    cookies.get("REG_IDT",         ""))
+        _update_env("NAME_LOGIN_TIME", cookies.get("acct_login_time", ""))
         return cookies
 
     def _parse(self, path: Path) -> Iterator[Domain]:
-        """Parse a name.com TSV file and yield Domain objects."""
+        """Parse a name.com CSV file and yield Domain objects."""
         content = path.read_text(encoding="utf-8")
-        reader  = csv.DictReader(io.StringIO(content), delimiter="\t")
+        reader  = csv.DictReader(io.StringIO(content), delimiter=",")
+        log.debug("name.com: CSV headers = %s", reader.fieldnames)
         for row in reader:
             fqdn = row.get("domain_name", "").strip()
             if not fqdn:
@@ -212,6 +229,9 @@ class NameSource(DomainSource):
 def _is_login_redirect(resp: requests.Response) -> bool:
     """Returns True if the response body looks like a login page."""
     if resp.status_code != 200:
+        return False
+    content_type = resp.headers.get("content-type", "")
+    if "text/csv" in content_type or "text/plain" in content_type:
         return False
     snippet = resp.text[:2048].lower()
     return "sign-in" in snippet or "sign in" in snippet or "login" in snippet

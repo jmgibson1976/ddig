@@ -36,6 +36,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 from ..models.domain import Domain
 from .base import DomainSource
+from ddig.env import get_env
 
 log = logging.getLogger(__name__)
 
@@ -92,9 +93,9 @@ class CZDSSource(DomainSource):
     ) -> None:
         self.tlds      = [t.lstrip(".").lower() for t in tlds] if tlds else None
         self.timeout   = timeout
-        self.username  = username or os.environ.get("CZDS_USER", "")
-        self.password  = password or os.environ.get("CZDS_PASS", "")
-        self.token     = (token or os.environ.get("CZDS_TOKEN", "")).strip().strip("'\"")
+        self.username  = username or get_env("CZDS_USER", "")
+        self.password  = password or get_env("CZDS_PASS", "")
+        self.token     = (token or get_env("CZDS_TOKEN", "")).strip().strip("'\"")
         self.max_tlds  = max_tlds
         self.use_cache = use_cache
         self.cache_dir = Path(cache_dir or (Path.home() / ".ddig" / "czds_cache"))
@@ -405,7 +406,7 @@ class CZDSSource(DomainSource):
         log.info("Found %d approved TLDs: %s", len(approved), approved[:20])
         return approved
 
-    def _download_zone(self, tld: str) -> Path:
+    def _download_zone(self, tld: str) -> Path | None:
         cache_path = self._cache_path(tld)
 
         if self._is_cached(tld):

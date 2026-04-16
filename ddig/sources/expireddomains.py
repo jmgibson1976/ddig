@@ -25,6 +25,7 @@ import tldextract
 
 from ..models.domain import Domain
 from .base import DomainSource
+from ddig.env import get_env
 
 log = logging.getLogger(__name__)
 
@@ -96,12 +97,12 @@ class ExpiredDomainsSource(DomainSource):
         self.headless        = headless
         self.slow_mo         = slow_mo
         self.timeout         = timeout
-        self.username        = username        or os.environ.get("EXPIREDDOMAINS_USER",                 "")
-        self.password        = password        or os.environ.get("EXPIREDDOMAINS_PASS",                 "")
-        self.session_cookie  = session_cookie  or os.environ.get("EXPIREDDOMAINS_SESSION",              "")
-        self.session_name    = session_name    or os.environ.get("EXPIREDDOMAINS_SESSION_NAME",         "ExpiredDomainssessid")
-        self.remember_cookie = remember_cookie or os.environ.get("EXPIREDDOMAINS_REMEMBER_SESSION",     "")
-        self.remember_name   = remember_name   or os.environ.get("EXPIREDDOMAINS_REMEMBER_COOKIE_NAME", "reme")
+        self.username        = username        or get_env("EXPIREDDOMAINS_USER")
+        self.password        = password        or get_env("EXPIREDDOMAINS_PASS")
+        self.session_cookie  = session_cookie  or get_env("EXPIREDDOMAINS_SESSION")
+        self.session_name    = session_name    or get_env("EXPIREDDOMAINS_SESSION_NAME",         "ExpiredDomainssessid")
+        self.remember_cookie = remember_cookie or get_env("EXPIREDDOMAINS_REMEMBER_SESSION")
+        self.remember_name   = remember_name   or get_env("EXPIREDDOMAINS_REMEMBER_COOKIE_NAME", "reme")
 
     # ------------------------------------------------------------------ #
     # Availability                                                         #

@@ -6,7 +6,7 @@ import inspect
 import io
 from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -80,15 +80,15 @@ def src_with_token(tmp_path):
 # ------------------------------------------------------------------ #
 
 class TestInit:
-    def test_reads_username_from_env(self, monkeypatch, tmp_path):
-        monkeypatch.setenv("CZDS_USER", "env@example.com")
-        src = CZDSSource(cache_dir=tmp_path)
-        assert src.username == "env@example.com"
+    def test_reads_username_from_env(self):
+        with patch("ddig.env._cache", {"CZDS_USER": "env@example.com", "CZDS_PASS": "envpass", "CZDS_TOKEN": "tok"}):
+            src = CZDSSource()
+            assert src.username == "env@example.com"
 
-    def test_reads_password_from_env(self, monkeypatch, tmp_path):
-        monkeypatch.setenv("CZDS_PASS", "envpass")
-        src = CZDSSource(cache_dir=tmp_path)
-        assert src.password == "envpass"
+    def test_reads_password_from_env(self):
+        with patch("ddig.env._cache", {"CZDS_USER": "env@example.com", "CZDS_PASS": "envpass", "CZDS_TOKEN": "tok"}):
+            src = CZDSSource()
+            assert src.password == "envpass"
 
     def test_kwarg_overrides_env(self, monkeypatch, tmp_path):
         monkeypatch.setenv("CZDS_USER", "env@example.com")

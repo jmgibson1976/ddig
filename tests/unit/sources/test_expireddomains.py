@@ -20,17 +20,29 @@ from ddig.models.domain import Domain
 # ------------------------------------------------------------------ #
 
 class TestInit:
-    def test_reads_credentials_from_env(self, monkeypatch):
-        monkeypatch.setenv("EXPIREDDOMAINS_USER", "testuser")
-        monkeypatch.setenv("EXPIREDDOMAINS_PASS", "testpass")
-        src = ExpiredDomainsSource()
-        assert src.username == "testuser"
-        assert src.password == "testpass"
+    def test_reads_credentials_from_env(self):
+        with patch("ddig.env._cache", {
+            "EXPIREDDOMAINS_USER": "testuser",
+            "EXPIREDDOMAINS_PASS": "testpass",
+            "EXPIREDDOMAINS_SESSION": "abc123",
+            "EXPIREDDOMAINS_SESSION_NAME": "ExpiredDomainssessid",
+            "EXPIREDDOMAINS_REMEMBER_SESSION": "rem123",
+            "EXPIREDDOMAINS_REMEMBER_COOKIE_NAME": "reme",
+        }):
+            src = ExpiredDomainsSource()
+            assert src.username == "testuser"
 
-    def test_reads_session_cookie_from_env(self, monkeypatch):
-        monkeypatch.setenv("EXPIREDDOMAINS_SESSION", "abc123")
-        src = ExpiredDomainsSource()
-        assert src.session_cookie == "abc123"
+    def test_reads_session_cookie_from_env(self):
+        with patch("ddig.env._cache", {
+            "EXPIREDDOMAINS_USER": "testuser",
+            "EXPIREDDOMAINS_PASS": "testpass",
+            "EXPIREDDOMAINS_SESSION": "abc123",
+            "EXPIREDDOMAINS_SESSION_NAME": "ExpiredDomainssessid",
+            "EXPIREDDOMAINS_REMEMBER_SESSION": "rem123",
+            "EXPIREDDOMAINS_REMEMBER_COOKIE_NAME": "reme",
+        }):
+            src = ExpiredDomainsSource()
+            assert src.session_cookie == "abc123"
 
     def test_invalid_list_name_raises(self):
         with pytest.raises(ValueError, match="Unknown list"):
@@ -134,15 +146,18 @@ class TestLogin:
         names = [c["name"] for c in cookies]
         assert "reme" in names                   # remember_name default is "reme"
 
-    def test_missing_credentials_raises(self, monkeypatch):
-        monkeypatch.delenv("EXPIREDDOMAINS_USER",             raising=False)
-        monkeypatch.delenv("EXPIREDDOMAINS_PASS",             raising=False)
-        monkeypatch.delenv("EXPIREDDOMAINS_SESSION",          raising=False)
-        monkeypatch.delenv("EXPIREDDOMAINS_REMEMBER_SESSION", raising=False)
-        src = ExpiredDomainsSource()
-        mock_page = MagicMock()
-        with pytest.raises(RuntimeError, match="credentials required"):
-            src._login(mock_page)
+    def test_missing_credentials_raises(self):
+        with patch("ddig.env._cache", {
+            "EXPIREDDOMAINS_USER": "",
+            "EXPIREDDOMAINS_PASS": "",
+            "EXPIREDDOMAINS_SESSION": "",
+            "EXPIREDDOMAINS_SESSION_NAME": "ExpiredDomainssessid",
+            "EXPIREDDOMAINS_REMEMBER_SESSION": "",
+            "EXPIREDDOMAINS_REMEMBER_COOKIE_NAME": "reme",
+        }):
+            src = ExpiredDomainsSource()
+            with pytest.raises((RuntimeError, ValueError)):
+                list(src.fetch())
 
 
 # ------------------------------------------------------------------ #

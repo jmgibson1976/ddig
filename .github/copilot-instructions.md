@@ -56,6 +56,7 @@ ruff format ddig/
 ddig/
 ├── ddig/
 │   ├── __main__.py          # All CLI commands (Typer). Entry point.
+│   ├── env.py               # Shared env reader — always use get_env() instead of os.environ.get()
 │   ├── models/
 │   │   └── domain.py        # Domain dataclass — the core data model
 │   ├── sources/
@@ -179,6 +180,13 @@ Source.fetch()
 | CZDS zone file download and parsing | `sources/czds.py` | ✅ Working — 1.2M domains/TLD in ~2 min |
 | CZDS returns 0 TLDs until zone access approved | `sources/czds.py` | ✅ Resolved — 834 TLDs approved |
 
+## Environment Utility (`ddig/env.py`)
+
+- `get_env(key, default="")` — reads from `.env` file directly via `dotenv_values()`, **never** from `os.environ`. Use this everywhere credentials are needed.
+- `reload_env()` — clears the in-memory cache so the next `get_env()` call re-reads `.env` from disk. Call this after `_update_env()` writes new cookie values.
+- The cache is process-scoped — one read per process unless `reload_env()` is called explicitly.
+- Never import `dotenv_values` directly in source files — always go through `get_env()`.
+
 ## Environment Variables
 
 ```bash
@@ -199,8 +207,8 @@ CZDS_TOKEN=eyJhbGci...    # JWT, ~1193 chars, expires ~1h — auto-refreshed by 
 # Run `ddig fetch --source name` to trigger Playwright re-auth when cookies expire
 NAME_USER=yourusername
 NAME_PASS=yourpassword
-NAME_SESSION_NAME=PREG_IDT
-NAME_SESSION=<PREG_IDT cookie value>
+NAME_SESSION_NAME=REG_IDT
+NAME_SESSION=<REG_IDT cookie value>
 NAME_LOGIN_TIME_NAME=acct_login_time
 NAME_LOGIN_TIME=<acct_login_time cookie value>
 ```
@@ -232,6 +240,8 @@ NAME_LOGIN_TIME=<acct_login_time cookie value>
 
 ## Anti-Patterns to Avoid
 
+- ❌ Don't use `os.environ.get()` for credentials anywhere — always use `get_env()` from `ddig.env` which reads directly from `.env` and bypasses stale shell environment overrides
+- ❌ Don't import `dotenv_values` directly in source files — use `get_env()` from `ddig.env` instead; it caches the result and supports `reload_env()` after `_update_env()` calls
 - ❌ Don't use `session.execute(text("INSERT ..."))` — use `upsert_many()`
 - ❌ Don't hardcode credentials — always read from `os.environ`
 - ❌ Don't buffer all domains in memory — sources must `yield` (streaming)
@@ -301,3 +311,8 @@ NAME_LOGIN_TIME=<acct_login_time cookie value>
 - **Always read source files fresh** before editing — never assume the current contents match a previous response. Request or reference the active file content before writing any edit.
 - **Always write or update tests** when adding or changing source code — new sources get a `tests/unit/sources/test_<name>.py`, new CLI commands get coverage in the relevant `tests/unit/cli/test_<command>_command.py`, changed behaviour gets updated assertions.
 - **Always write or update documentation** when adding or changing features — new sources get `docs/sources/<name>.md`, new CLI commands get entries in `README.md` and `copilot-instructions.md`, changed env vars get updated in `.env.example` and the Environment Variables section of this file.
+- **Always include the filepath comment at the top of every code block** — every code block must start with `// filepath: /path/to/file` (or `# filepath:` for Python/shell) so the Apply tool knows exactly which file to update. Never omit this. A code block without a filepath will not apply correctly.
+
+## Additional Notes
+
+- ❌ Don't use `os.environ.get()` for credentials anywhere — always use `get_env()` from `ddig.env` which reads directly from `.env` and bypasses stale shell environment overrides

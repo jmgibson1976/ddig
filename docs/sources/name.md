@@ -22,27 +22,26 @@ headless Chromium browser, fills in your credentials, captures the new
 session cookies, writes them back to `.env`, and retries the download.
 
 **MFA:**
-If name.com prompts for a one-time code after login, DDig will pause and
-print `name.com MFA code:` in the terminal.  Enter the 6-digit code and
-press Enter to continue.  After a successful MFA login the new session
-cookie is saved to `.env`, so subsequent fetches will not require MFA
-until the session expires again.
+name.com sends a **one-time code to your email** after login. DDig will
+detect the OTP field, print a prompt in the terminal, and wait for you
+to paste the code. Enter it and press Enter to continue. Once past MFA
+the session cookie is long-lived — daily re-auth is not normally needed.
 
 ## Refreshing Cookies Manually
 
 If automated re-auth fails, copy fresh cookies from your browser:
 
 1. Open **DevTools** → **Application** → **Cookies** → `www.name.com`
-2. Copy the value of `PREG_IDT` into `NAME_SESSION`
+2. Copy the value of `REG_IDT` into `NAME_SESSION`
 3. Copy the value of `acct_login_time` into `NAME_LOGIN_TIME`
 
 ## Environment Variables
 
 | Variable | Description | Required |
 |---|---|---|
-| `NAME_USER` | name.com username / email | ✅ |
+| `NAME_USER` | name.com username | ✅ |
 | `NAME_PASS` | name.com password | ✅ |
-| `NAME_SESSION_NAME` | Session cookie name (default: `PREG_IDT`) | ✅ |
+| `NAME_SESSION_NAME` | Session cookie name (default: `REG_IDT`) | ✅ |
 | `NAME_SESSION` | Session cookie value | ✅ |
 | `NAME_LOGIN_TIME_NAME` | Login-time cookie name (default: `acct_login_time`) | ✅ |
 | `NAME_LOGIN_TIME` | Login-time cookie value | ✅ |
@@ -50,9 +49,9 @@ If automated re-auth fails, copy fresh cookies from your browser:
 Add these to your `.env` (copy from `.env.example`):
 
 ```bash
-NAME_USER=you@example.com
+NAME_USER=yourusername
 NAME_PASS=yourpassword
-NAME_SESSION_NAME=PREG_IDT
+NAME_SESSION_NAME=REG_IDT
 NAME_SESSION=<value from DevTools>
 NAME_LOGIN_TIME_NAME=acct_login_time
 NAME_LOGIN_TIME=<value from DevTools>
@@ -60,8 +59,7 @@ NAME_LOGIN_TIME=<value from DevTools>
 
 ## CSV Format
 
-The download endpoint returns a **tab-separated** file (despite the `.csv`
-extension) with the following columns:
+The download endpoint returns a **comma-separated** file with the following columns:
 
 | Column | Description | Maps to `Domain` field |
 |---|---|---|
@@ -74,9 +72,15 @@ extension) with the following columns:
 
 ## Caching
 
-Downloaded files are written to `data/name_YYYY-MM-DD.tsv`.  If today's
+Downloaded files are written to `data/name_YYYY-MM-DD.csv`.  If today's
 file already exists, DDig skips the network request and parses the cached
 copy.  The `data/` directory is `.gitignore`d.
+
+> **Note:** `upsert_many()` uses `INSERT OR REPLACE` / `ON CONFLICT DO UPDATE`
+> on `fqdn` as the unique key.  Re-fetching the same source on the same day
+> uses the cached file and updates existing rows — it does **not** create
+> duplicates.  The "Saved N records" count reflects rows **processed**,
+> not rows **created**.
 
 ## Usage
 
@@ -96,6 +100,7 @@ ddig fetch --source name --verbose
 | Symptom | Fix |
 |---|---|
 | `requests.exceptions.HTTPError: 302` | Session expired — run `ddig fetch --source name` to trigger Playwright re-auth, or paste fresh cookies into `.env` manually |
-| Playwright hangs at MFA screen | Enter the MFA code in the terminal when prompted |
+| Playwright hangs at MFA screen | Enter the security code from your email in the terminal when prompted |
 | `NAME_SESSION` not set | Add all `NAME_*` vars to `.env` (see table above) |
-| Downloaded file is an HTML login page | Cookie is invalid — delete `data/name_*.tsv` and re-fetch to force re-auth |
+| Downloaded file is an HTML login page | Cookie is invalid — delete `data/name_*.csv` and re-fetch to force re-auth |
+| Account lockout | Check `NAME_PASS` in `.env` is quoted correctly and no stale `NAME_PASS` shell variable exists — run `unset NAME_PASS` |

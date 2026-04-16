@@ -42,7 +42,8 @@ tests/
     │   ├── test_czds.py              # CZDS source — parsing, auth
     │   ├── test_dropcatch.py         # DropCatch source — XML parsing
     │   ├── test_expireddomains.py    # ExpiredDomains — login, scraping
-    │   └── test_majestic.py         # Majestic — CSV parsing, enrichment-only
+    │   ├── test_majestic.py         # Majestic — CSV parsing, enrichment-only
+    │   └── test_name.py
     └── storage/
         ├── test_datastore_search.py  # DomainStore.search() — all filter combinations
         ├── test_datastore_upsert.py  # DomainStore.upsert_many() — write path
@@ -201,8 +202,15 @@ Rules:
 - DB path shown, handles missing DB gracefully
 
 ### `test_name.py`
-- `TestNameSourceParsing` — TSV rows → correct `Domain` fields, `drop_date` parsed, empty `traffic_data` handled, invalid date → `None`, empty fqdn row skipped
-- `TestNameSourceFetch` — mocked `requests.get` → yields `Domain` objects, cookies passed correctly
-- `TestNameSourceCaching` — today's cached file skips network; stale date file does not
-- `TestNameSourceAuth` — 302 redirect triggers `_auth_with_playwright()`; login-page 200 also triggers it
-- `TestNameSourceIsAvailable` — `True` when `NAME_SESSION` set; `False` when missing or empty
+- `TestNameSourceParsing` — CSV rows → correct `Domain` fields, `drop_date` parsed, empty `traffic_data` handled, invalid date → `None`, empty fqdn row skipped
+- `TestNameSourceFetch` — mocked `requests.Session.get` → yields `Domain` objects, cookies passed with correct key `REG_IDT`
+- `TestNameSourceCaching` — today's cached `.csv` file skips network; `requests.Session` never called
+- `TestNameSourceAuth` — 302 redirect triggers `_auth_with_playwright()`; domains returned from second successful response
+- All fetch/auth tests mock `_auth_with_playwright` to avoid stdin reads during test capture
+- All tests patch `ddig.env._cache` directly instead of `os.environ` — required because sources use `get_env()` not `os.environ.get()`
+
+### `test_expireddomains.py`
+- All env-dependent tests patch `ddig.env._cache` directly — required because `ExpiredDomainsSource` uses `get_env()` not `os.environ.get()`
+
+### `test_czds.py`
+- All env-dependent tests patch `ddig.env._cache` directly — required because `CZDSSource` uses `get_env()` not `os.environ.get()`

@@ -401,8 +401,8 @@ CZDS_TOKEN=eyJhbGci...   # JWT, ~1193 chars, expires ~1h — run `ddig czds-auth
 # name.com — session cookies (get from DevTools → Application → Cookies → www.name.com)
 NAME_USER=yourusername
 NAME_PASS=yourpassword
-NAME_SESSION_NAME=PREG_IDT
-NAME_SESSION=<PREG_IDT cookie value>
+NAME_SESSION_NAME=REG_IDT
+NAME_SESSION=<REG_IDT cookie value>
 NAME_LOGIN_TIME_NAME=acct_login_time
 NAME_LOGIN_TIME=<acct_login_time cookie value>
 ```

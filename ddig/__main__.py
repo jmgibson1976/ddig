@@ -775,13 +775,13 @@ def name_debug(
         browser = p.chromium.launch(headless=False)
         page    = browser.new_page()
         page.goto("https://www.name.com/account/login", wait_until="domcontentloaded")
-        page.wait_for_selector("input", timeout=10000)
+        page.wait_for_selector("input[name='acct_name']", timeout=10000)
 
+        from rich.table import Table as RichTable
         inputs = page.query_selector_all("input")
         if not inputs:
             console.print("[yellow]No input fields found on the page.[/yellow]")
         else:
-            from rich.table import Table as RichTable
             table = RichTable(title="Input Fields", show_header=True)
             table.add_column("type",        style="cyan")
             table.add_column("name",        style="green")
@@ -796,11 +796,27 @@ def name_debug(
                 )
             console.print(table)
 
+        buttons = page.query_selector_all("button")
+        btable = RichTable(title="Buttons", show_header=True)
+        btable.add_column("type",    style="cyan")
+        btable.add_column("class",   style="green")
+        btable.add_column("text",    style="yellow")
+        btable.add_column("visible", style="dim")
+        for btn in buttons:
+            btable.add_row(
+                btn.get_attribute("type")  or "",
+                btn.get_attribute("class") or "",
+                (btn.inner_text() or "").strip()[:40],
+                str(btn.is_visible()),
+            )
+        console.print(btable)
+
         console.print("\n[dim]Browser is open — inspect as needed. Press Enter here to close.[/dim]")
         input()
         browser.close()
 
     console.print("[green]✓[/green] Done.")
+
 
 # ---------------------------------------------------------------------------
 # purge

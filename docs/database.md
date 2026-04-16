@@ -38,7 +38,17 @@ Pinned domains. Independent of the `domains` table.
 
 ## Upsert Behaviour
 
-`upsert_many()` is the **only write path**. On conflict (same `fqdn`):
+`DomainStore.upsert_many()` is the only write path.  It uses
+`INSERT OR REPLACE` / `ON CONFLICT DO UPDATE` with `fqdn` as the unique key:
+
+- **New domain** → inserted as a new row
+- **Existing domain** → row updated in place
+- **NLP fields** (`nlp_score`, `is_real_word`, `is_pronounceable`, `word_frequency`) are **never overwritten** — existing scores are preserved
+- **`source`** accumulates: `"dropcatch,name"` if seen in both
+- **`backlinks`** keeps the highest value seen across sources
+- The "Saved N records" count in CLI output reflects rows **processed** (inserted + updated), not rows **created**
+
+On conflict (same `fqdn`):
 
 | Field | Behaviour |
 |-------|-----------|
