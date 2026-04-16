@@ -135,6 +135,12 @@ ddig fetch --source majestic --max-rank 10000         # top 10K by rank
 ddig fetch --source majestic --min-rank 100000 --max-rank 500000  # mid-tier
 ```
 
+```bash
+# name.com — requires session cookies in .env (auto-refreshed via Playwright)
+ddig fetch --source name
+ddig fetch --source name --score
+```
+
 ---
 
 ### `ddig search` — Query the Database
@@ -356,12 +362,13 @@ ddig czds-auth --verbose
 
 ## Sources
 
-| Source           | Auth Required              | Volume                        | Run Regularly?      | Docs                             |
-|------------------|----------------------------|-------------------------------|---------------------|----------------------------------|
-| `dropcatch`      | None                       | ~500K/day                     | ✅ Daily             | [docs/sources/dropcatch.md]      |
-| `expireddomains` | Free account + two cookies | ~25/page (free)               | ✅ Daily             | [docs/sources/expireddomains.md] |
-| `majestic`       | None                       | Enrichment only               | ✅ After fetch       | [docs/sources/majestic.md]       |
-| `czds`           | ICANN account + approval   | Millions/TLD — use carefully  | ⚠️ Intentional only | [docs/sources/czds.md]           |
+| Source           | Auth Required                    | Volume                       | Run Regularly?      | Docs                                              |
+|------------------|----------------------------------|------------------------------|---------------------|---------------------------------------------------|
+| `dropcatch`      | None                             | ~500K/day                    | ✅ Daily             | [docs/sources/dropcatch.md](docs/sources/dropcatch.md)           |
+| `expireddomains` | Free account + two cookies       | ~25/page (free)              | ✅ Daily             | [docs/sources/expireddomains.md](docs/sources/expireddomains.md) |
+| `majestic`       | None                             | Enrichment only              | ✅ After fetch       | [docs/sources/majestic.md](docs/sources/majestic.md)             |
+| `czds`           | ICANN account + approval         | Millions/TLD — use carefully | ⚠️ Intentional only | [docs/sources/czds.md](docs/sources/czds.md)                     |
+| `name`           | Session cookies (`NAME_SESSION`) | Full expiring list daily     | ✅ Daily             | [docs/sources/name.md](docs/sources/name.md)                     |
 
 > **Note:** CZDS provides full TLD zone files (all registered domains), not dropping domains.
 > It does not add expiry or drop date signal. Use it only to pre-score a specific TLD you are
@@ -390,6 +397,14 @@ EXPIREDDOMAINS_REMEMBER_SESSION=<reme cookie value>
 CZDS_USER=your@email.com
 CZDS_PASS=yourpassword
 CZDS_TOKEN=eyJhbGci...   # JWT, ~1193 chars, expires ~1h — run `ddig czds-auth` to refresh
+
+# name.com — session cookies (get from DevTools → Application → Cookies → www.name.com)
+NAME_USER=yourusername
+NAME_PASS=yourpassword
+NAME_SESSION_NAME=PREG_IDT
+NAME_SESSION=<PREG_IDT cookie value>
+NAME_LOGIN_TIME_NAME=acct_login_time
+NAME_LOGIN_TIME=<acct_login_time cookie value>
 ```
 
 > ⚠️ Never use shell `export` for credentials — always use `.env`.

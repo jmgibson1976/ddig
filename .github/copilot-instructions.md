@@ -48,6 +48,7 @@ ruff format ddig/
 | `ddig ed-debug` | Open Playwright browser to inspect ExpiredDomains login form fields |
 | `ddig czds-auth` | Re-authenticate with ICANN CZDS via Playwright, capture JWT, save to .env |
 | `ddig czds-tlds` | List all CZDS TLDs you are approved to download |
+| `ddig name-debug` | Open Playwright browser to inspect name.com login form fields |
 
 ## Architecture
 
@@ -62,7 +63,8 @@ ddig/
 │   │   ├── dropcatch.py     # Free XML feed scraper — no auth, always works
 │   │   ├── expireddomains.py # Playwright scraper — member.expireddomains.net
 │   │   ├── czds.py          # ICANN zone file downloader — Okta JWT auth via Playwright
-│   │   └── majestic.py      # Majestic Million CSV — no auth, backlink enrichment
+│   │   ├── majestic.py      # Majestic Million CSV — no auth, backlink enrichment
+│   │   └── name.py          # name.com expiring-domains — cookie auth + Playwright fallback
 │   ├── storage/
 │   │   └── datastore.py     # SQLite store (SQLAlchemy)
 │   └── nlp/
@@ -192,6 +194,15 @@ EXPIREDDOMAINS_REMEMBER_SESSION=<reme cookie value>
 CZDS_USER=your@email.com
 CZDS_PASS=yourpassword
 CZDS_TOKEN=eyJhbGci...    # JWT, ~1193 chars, expires ~1h — auto-refreshed by czds-auth
+
+# name.com — session cookies (get from DevTools → Application → Cookies → www.name.com)
+# Run `ddig fetch --source name` to trigger Playwright re-auth when cookies expire
+NAME_USER=yourusername
+NAME_PASS=yourpassword
+NAME_SESSION_NAME=PREG_IDT
+NAME_SESSION=<PREG_IDT cookie value>
+NAME_LOGIN_TIME_NAME=acct_login_time
+NAME_LOGIN_TIME=<acct_login_time cookie value>
 ```
 
 ## Adding a New Source — Checklist
@@ -217,6 +228,7 @@ CZDS_TOKEN=eyJhbGci...    # JWT, ~1193 chars, expires ~1h — auto-refreshed by 
 | ExpiredDomains source | `docs/sources/expireddomains.md` |
 | ICANN CZDS source | `docs/sources/czds.md` |
 | Majestic Million source | `docs/sources/majestic.md` |
+| Name.com source | `docs/sources/name.md` |
 
 ## Anti-Patterns to Avoid
 
@@ -229,7 +241,7 @@ CZDS_TOKEN=eyJhbGci...    # JWT, ~1193 chars, expires ~1h — auto-refreshed by 
 - ❌ Don't use `.where(...).else_(...)` on SQLAlchemy column expressions — use `case((condition, value), else_=fallback)`
 - ❌ Don't scrape `www.expireddomains.net` for results — use `member.expireddomains.net`
 - ❌ Don't inject cookies before visiting the domain — navigate to BASE_URL first, then add cookies
-- ❌ Don't remove diagnostic commands (`doctor`, `ed-debug`, `czds-auth`) — they are needed for maintenance
+- ❌ Don't remove diagnostic commands (`doctor`, `ed-debug`, `czds-auth`, `name-debug`) — they are needed for maintenance
 - ❌ Don't hardcode CZDS login selectors without checking — the Okta form uses `#emailAddress` for email and `input[type="password"]` for password (auto-generated id)
 - ❌ Don't use `self._session()` in `DomainStore` — the session factory is `self._Session` (capital S)
 - ❌ Don't compare `drop_date` strings without timezone suffix — always use `.isoformat()` which includes `+00:00`
@@ -282,3 +294,10 @@ CZDS_TOKEN=eyJhbGci...    # JWT, ~1193 chars, expires ~1h — auto-refreshed by 
 - PR title format: `[type] short description` derived from branch name
 - PRs are created as **drafts** — mark ready for review manually
 - **PR creation runs in a background subshell** after push — the PR URL will not appear in the terminal during the push, it appears a few seconds after
+
+## Code Generation Rules
+
+- **Always make surgical, targeted edits** — never provide full file replacements that wipe out surrounding code. Use `// ...existing code...` markers to show only the lines being added or changed. Replacing whole files risks deleting diagnostic commands (`ed-debug`, `czds-auth`), unrelated features, and carefully maintained logic.
+- **Always read source files fresh** before editing — never assume the current contents match a previous response. Request or reference the active file content before writing any edit.
+- **Always write or update tests** when adding or changing source code — new sources get a `tests/unit/sources/test_<name>.py`, new CLI commands get coverage in the relevant `tests/unit/cli/test_<command>_command.py`, changed behaviour gets updated assertions.
+- **Always write or update documentation** when adding or changing features — new sources get `docs/sources/<name>.md`, new CLI commands get entries in `README.md` and `copilot-instructions.md`, changed env vars get updated in `.env.example` and the Environment Variables section of this file.

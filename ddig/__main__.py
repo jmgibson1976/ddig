@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import csv
 import json
+import importlib.metadata
 import logging
 from pathlib import Path
 from typing import Optional
@@ -29,6 +30,7 @@ from .sources.dropcatch import DropCatchSource, REQUEST_TYPES as DROPCATCH_FEEDS
 from .sources.expireddomains import ExpiredDomainsSource, LIST_URLS as ED_LISTS
 from .sources.czds import CZDSSource
 from .sources.majestic import MajesticMillionSource
+from .sources.name import NameSource
 from .storage.datastore import DomainStore, DEFAULT_DB_PATH
 from .nlp.scorer import DomainScorer
 
@@ -197,6 +199,10 @@ def fetch(
             min_rank = min_rank,
             max_rank = max_rank,
         )
+
+    elif source == "name":
+        from ddig.sources.name import NameSource
+        src = NameSource(headless=headless, verbose=verbose)
 
     else:
         console.print(f"[red]Unknown source: {source!r}[/red]")
@@ -628,6 +634,10 @@ def doctor(
     table.add_row("CZDS_USER",                      _check("CZDS_USER",                      secret=False))
     table.add_row("CZDS_PASS",                      _check("CZDS_PASS",                      secret=True))
     table.add_row("CZDS_TOKEN",                     _check("CZDS_TOKEN",                     secret=True))
+    table.add_row("NAME_USER",                      _check("NAME_USER",                      secret=False))
+    table.add_row("NAME_PASS",                      _check("NAME_PASS",                      secret=True))
+    table.add_row("NAME_SESSION",                   _check("NAME_SESSION",                   secret=True))
+    table.add_row("NAME_LOGIN_TIME",                _check("NAME_LOGIN_TIME",                secret=True))
 
     console.print(table)
     console.print()
@@ -635,46 +645,44 @@ def doctor(
     # ── Dependencies ───────────────────────────────────────────────
     console.print("[bold]Dependencies[/bold]")
     table = Table(show_header=False, box=None, padding=(0, 2))
-    table.add_column(style="dim",  min_width=24)
+    table.add_column(style="dim", min_width=24)
     table.add_column(min_width=50)
 
-    deps = {
-        "playwright":   "playwright.sync_api",
-        "tldextract":   "tldextract",
-        "requests":     "requests",
-        "rich":         "rich",
-        "typer":        "typer",
-        "sqlalchemy":   "sqlalchemy",
-    }
-    for name, module in deps.items():
+    def _dep(pkg: str) -> str:
         try:
-            import importlib
-            importlib.import_module(module)
-            table.add_row(name, "[green]✓ installed[/green]")
-        except ImportError:
-            hint = "  →  pip install playwright && playwright install chromium" if name == "playwright" else f"  →  pip install {name}"
-            table.add_row(name, f"[red]✗ missing[/red]{hint}")
+            importlib.metadata.version(pkg)
+            return "[green]✓ installed[/green]"
+        except importlib.metadata.PackageNotFoundError:
+            return f"[red]✗ not installed — run: pip install {pkg}[/red]"
+
+    table.add_row("playwright",  _dep("playwright"))
+    table.add_row("sqlalchemy",  _dep("sqlalchemy"))
+    table.add_row("rich",        _dep("rich"))
+    table.add_row("requests",    _dep("requests"))
+
     console.print(table)
     console.print()
 
     # ── Database ───────────────────────────────────────────────────
     console.print("[bold]Database[/bold]")
     table = Table(show_header=False, box=None, padding=(0, 2))
-    table.add_column(style="dim",  min_width=24)
+    table.add_column(style="dim", min_width=24)
     table.add_column(min_width=50)
 
+    table.add_row("Path", str(db))
     try:
-        store = DomainStore(db_path=db)
-        s     = store.stats()
-        table.add_row("Path",   str(db))
-        table.add_row("Total",  f"{s['total']:,} domains")
-        table.add_row("Scored", f"{s['scored']:,} domains")
+        _store = DomainStore(db_path=db)
+        _s     = _store.stats()
+        table.add_row("Total domains", f"{_s['total']:,}")
+        table.add_row("NLP scored",    f"{_s['scored']:,}")
     except Exception as exc:
-        table.add_row("Database", f"[red]✗ error: {exc}[/red]")
+        table.add_row("Status", f"[red]✗ could not open DB: {exc}[/red]")
 
     console.print(table)
     console.print()
 
+# ---------------------------------------------------------------------------
+# ed_debug
 # ---------------------------------------------------------------------------
 
 @app.command()
@@ -740,6 +748,62 @@ def ed_debug(
         input()  # keep browser open so you can inspect
         browser.close()
 
+
+# ---------------------------------------------------------------------------
+# name_debug
+# ---------------------------------------------------------------------------
+
+@app.command()
+def name_debug(
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+) -> None:
+    """
+    Open a Playwright browser to inspect the name.com login form fields.
+
+    Navigates to the sign-in page, prints all input field attributes,
+    then waits for you to inspect the browser before closing.
+    Useful when login breaks and selectors need updating.
+    """
+    _setup_logging(verbose)
+
+    console.print("\n[bold]name.com Login Form Debug[/bold]\n")
+    console.print("Opening browser and printing all input fields...\n")
+
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=False)
+        page    = browser.new_page()
+        page.goto("https://www.name.com/account/login", wait_until="domcontentloaded")
+        page.wait_for_selector("input", timeout=10000)
+
+        inputs = page.query_selector_all("input")
+        if not inputs:
+            console.print("[yellow]No input fields found on the page.[/yellow]")
+        else:
+            from rich.table import Table as RichTable
+            table = RichTable(title="Input Fields", show_header=True)
+            table.add_column("type",        style="cyan")
+            table.add_column("name",        style="green")
+            table.add_column("id",          style="yellow")
+            table.add_column("placeholder", style="dim")
+            for inp in inputs:
+                table.add_row(
+                    inp.get_attribute("type")        or "",
+                    inp.get_attribute("name")        or "",
+                    inp.get_attribute("id")          or "",
+                    inp.get_attribute("placeholder") or "",
+                )
+            console.print(table)
+
+        console.print("\n[dim]Browser is open — inspect as needed. Press Enter here to close.[/dim]")
+        input()
+        browser.close()
+
+    console.print("[green]✓[/green] Done.")
+
+# ---------------------------------------------------------------------------
+# purge
 # ---------------------------------------------------------------------------
 
 @app.command()

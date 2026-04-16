@@ -199,3 +199,10 @@ Rules:
 - All dependencies shown: playwright, sqlalchemy, rich, requests
 - Installed dependency shows `✓`
 - DB path shown, handles missing DB gracefully
+
+### `test_name.py`
+- `TestNameSourceParsing` — TSV rows → correct `Domain` fields, `drop_date` parsed, empty `traffic_data` handled, invalid date → `None`, empty fqdn row skipped
+- `TestNameSourceFetch` — mocked `requests.get` → yields `Domain` objects, cookies passed correctly
+- `TestNameSourceCaching` — today's cached file skips network; stale date file does not
+- `TestNameSourceAuth` — 302 redirect triggers `_auth_with_playwright()`; login-page 200 also triggers it
+- `TestNameSourceIsAvailable` — `True` when `NAME_SESSION` set; `False` when missing or empty

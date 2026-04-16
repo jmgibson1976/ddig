@@ -43,3 +43,5 @@ Thumbs.db
 .pre-commit-hooks.yaml
 .pre-commit-cache/
 .secrets-baseline
+
+data/
